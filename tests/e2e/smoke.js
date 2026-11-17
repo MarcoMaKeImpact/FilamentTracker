@@ -73,46 +73,39 @@ const server = http.createServer((req, res) => {
   check(JSON.stringify(opts) === JSON.stringify(['Bitte wählen …', 'PLA Basic', 'PLA Matte']), 'Material-Auswahlliste aus dem Sheet: ' + opts.join(', '));
   await page.selectOption('#dName', 'PLA Basic'); await page.fill('#dColor', 'Schwarz'); await page.fill('#dMin', '1');
   await page.click('#dNew button[value=ok]');
-  await page.waitForFunction(() => document.getElementById('status').textContent.includes('Bestand'));
-  check((await status()).includes('Neu angelegt: +1 PLA Basic – Schwarz → Bestand 1'), 'Neu angelegt mit Bestand 1: ' + await status());
+  await page.waitForFunction(() => document.getElementById('status').textContent.includes('📦'));
+  check((await status()).includes('Neu angelegt: +1 PLA Basic – Schwarz → 📦 1 · 🔄 0'), 'Neu angelegt mit Bestand 1: ' + await status());
   await page.screenshot({ path: path.join(SHOTS, '1-neu.png') });
 
   // 2) Erneut hinzufügen → Box mit Menge, nur Menge sichtbar; + zweimal, − einmal → 2
   await page.fill('#manual', '6975337034001'); await page.click('#bManual');
   await page.waitForSelector('#dNew[open]');
-  check(await page.isHidden('#dName') && (await page.textContent('#dTitle')).includes('Aktueller Bestand: 1'), 'Box für bekannten Artikel zeigt nur Menge und aktuellen Bestand');
+  check(await page.isHidden('#dName') && (await page.textContent('#dTitle')).includes('Aktuell: 📦 1 · 🔄 0'), 'Box für bekannten Artikel zeigt nur Menge und aktuellen Bestand');
   await page.click('#dPlus'); await page.click('#dPlus'); await page.click('#dMinus');
   check(await page.inputValue('#dQty') === '2', 'Plus/Minus ändert die Menge');
   await page.screenshot({ path: path.join(SHOTS, '1b-menge.png') });
   await page.click('#dOk');
-  await page.waitForFunction(() => document.getElementById('status').textContent.includes('→ Bestand'));
-  check((await status()).includes('+2 PLA Basic – Schwarz → Bestand 3'), '+2 → ' + await status());
+  await page.waitForFunction(() => document.getElementById('status').textContent.includes('→ 📦'));
+  check((await status()).includes('+2 PLA Basic – Schwarz → 📦 3 · 🔄 0'), '+2 → ' + await status());
 
   // 2b) Menge direkt eintippen: 10
   await page.fill('#manual', '6975337034001'); await page.click('#bManual');
   await page.waitForSelector('#dNew[open]');
   await page.fill('#dQty', '10'); await page.click('#dOk');
-  await page.waitForFunction(() => document.getElementById('status').textContent.includes('Bestand 13'));
+  await page.waitForFunction(() => document.getElementById('status').textContent.includes('📦 13 · 🔄 0'));
   check(true, '+10 → ' + await status());
-  // für die weiteren Tests wieder auf 3 reduzieren (10× entnehmen)
-  await page.click('#bRemove');
-  for (let n = 0; n < 10; n++) await scan('6975337034001');
-  check((await status()).includes('Bestand 3'), '10× entnehmen → ' + await status());
-  await page.click('#bAdd');
 
-  // 3) Entnehmen −1 (zweimal), dann bei 0 Fehlermeldung
+  // 3) Modus „Öffnen“: Scan bucht 📦 −1, 🔄 +1
   await page.click('#bRemove');
+  check((await page.textContent('#bRemove')).includes('Öffnen'), 'Zweiter Modus heißt „Öffnen“');
   await scan('6975337034001');
-  check((await status()).includes('−1') && (await status()).includes('Bestand 2'), '−1 → ' + await status());
+  check((await status()).includes('Geöffnet: PLA Basic – Schwarz → 📦 12 · 🔄 1'), 'Öffnen → ' + await status());
   await scan('6975337034001');
-  await scan('6975337034001');
-  check((await status()).includes('Bestand 0'), '−1 → ' + await status());
-  await scan('6975337034001');
-  check((await status()).includes('schon bei 0'), 'Entnehmen bei 0 → ' + await status());
+  check((await status()).includes('📦 11 · 🔄 2'), 'Öffnen → ' + await status());
 
-  // 4) Unbekannter Barcode beim Entnehmen
+  // 4) Unbekannter Barcode beim Öffnen
   await scan('123');
-  check((await status()).includes('Unbekannter Barcode'), 'Unbekannt entnehmen → ' + await status());
+  check((await status()).includes('Unbekannter Barcode'), 'Unbekannt öffnen → ' + await status());
 
   // 5) Abbrechen im Dialog
   await page.click('#bAdd');
@@ -124,25 +117,34 @@ const server = http.createServer((req, res) => {
 
   // 6) Bestandsliste und Statistik
   await page.click('nav button[data-t=tStock]');
-  await page.waitForFunction(() => document.querySelectorAll('#list tr').length > 2);
+  await page.waitForFunction(() => document.querySelectorAll('#list tr.item').length > 0);
   const listText = await page.textContent('#list');
   check(listText.includes('Schwarz') && !listText.includes('PLA Basic'), 'Bestandsliste zeigt Farbe, aber kein Material');
   const firstRow = await page.$$eval('#list tr:nth-child(2) td', t => t.map(x => x.textContent.trim()));
-  check(firstRow[0] === '1', 'Bestandsliste zeigt die Nr.: ' + firstRow.join(' | '));
-  await page.click('#list button.up'); await page.waitForFunction(() => document.getElementById('listInfo').textContent.includes('Bestand 1'));
-  check(true, 'Knopf ▲ → ' + await page.textContent('#listInfo'));
-  await page.click('#list button.up'); await page.waitForFunction(() => document.getElementById('listInfo').textContent.includes('Bestand 2'));
-  await page.click('#list button.down'); await page.waitForFunction(() => document.getElementById('listInfo').textContent.includes('−1') && document.getElementById('listInfo').textContent.includes('Bestand 1'));
-  check(true, 'Knopf ▼ → ' + await page.textContent('#listInfo'));
-  await page.click('#list button.down'); await page.waitForFunction(() => document.getElementById('listInfo').textContent.includes('Bestand 0'));
-  await page.waitForTimeout(1500);
-  check(await page.$eval('#list button.down', b => b.disabled), 'Bei Bestand 0 ist ▼ gesperrt');
-  check(await page.$('#list tr.zero') !== null, 'Bestand 0 wird rot markiert');
+  check(JSON.stringify(firstRow.slice(0, 4)) === JSON.stringify(['1', 'Schwarz', '11', '2']), 'Zeile: Nr. · Farbe · 📦 · 🔄 = ' + firstRow.join(' | '));
+  const tiles = await page.$$eval('.sum3 b', b => b.map(x => x.textContent));
+  check(JSON.stringify(tiles) === JSON.stringify(['11', '2', '13']), 'Übersicht verpackt/in Verwendung/gesamt: ' + tiles.join(' / '));
+  await page.click('#list tr.item');
+  await page.waitForSelector('#dSpool[open]');
+  check((await page.textContent('#sTitle')) === '1 · Schwarz', 'Tipp auf Zeile öffnet Detail-Box');
+  const msg = () => page.textContent('#sMsg');
+  const tap = async (sel, expect) => { await page.click('#dSpool ' + sel); await page.waitForFunction(t => document.getElementById('sMsg').textContent.includes(t), expect); };
+  await tap('[data-a=open]', 'geöffnet');
+  check(await page.textContent('#sP') === '10' && await page.textContent('#sU') === '3', 'Spule öffnen → 📦 10 · 🔄 3 (' + await msg() + ')');
+  await page.screenshot({ path: path.join(SHOTS, '2b-details.png') });
+  await tap('[data-a=empty]', 'verbraucht');
+  check(await page.textContent('#sU') === '2', 'Spule leer → 🔄 2 (' + await msg() + ')');
+  await tap('[data-f=used][data-d="1"]', 'Korrigiert');
+  await tap('[data-f=packed][data-d="-1"]', 'Korrigiert');
+  check(await page.textContent('#sP') === '9' && await page.textContent('#sU') === '3', 'Korrekturen −/+ → 📦 9 · 🔄 3');
+  await page.click('#dSpool button[value=close]');
+  const row2 = await page.$$eval('#list tr:nth-child(2) td', t => t.map(x => x.textContent.trim()));
+  check(row2[2] === '9' && row2[3] === '3', 'Liste nach Schließen aktualisiert: ' + row2.join(' | '));
   await page.screenshot({ path: path.join(SHOTS, '2-bestand.png') });
   await page.click('nav button[data-t=tStats]');
   await page.waitForFunction(() => document.getElementById('stats').textContent.includes('Summe'));
   const sumRow = await page.$$eval('#stats tr.sum td', tds => tds.map(t => t.textContent));
-  check(JSON.stringify(sumRow) === JSON.stringify(['Summe', '15', '15', '15', '15']), 'Statistik-Summe ' + sumRow.join(' | '));
+  check(JSON.stringify(sumRow) === JSON.stringify(['Summe', '1', '13', '1', '13']), 'Statistik-Summe ' + sumRow.join(' | '));
   await page.screenshot({ path: path.join(SHOTS, '3-statistik.png') });
 
   // 7) Falscher Token
@@ -159,8 +161,9 @@ const server = http.createServer((req, res) => {
   
   // Sheet-Inhalt prüfen
   const rows = gas.sheets.Bestand.rows;
-  check(rows.length === 2 && rows[1][0] === 1 && rows[1][4] === 0 && rows[1][6] === 1, 'Sheet: Nr. 1, Bestand 0, Mindestbestand 1');
-  check(gas.sheets.Log.rows.length === 1 + 3 + 13 + 4, 'Log: 20 Einträge (inkl. 4 Klicks auf ▲/▼)');
+  check(rows.length === 2 && rows[1][0] === 1 && rows[1][4] === 9 && rows[1][5] === 3 && rows[1][7] === 1, 'Sheet: Nr. 1, Verpackt 9, In Verwendung 3, Mindestbestand 1');
+  const kinds = gas.sheets.Log.rows.slice(1).map(r => r[5]).join(',');
+  check(kinds === 'Kauf,Kauf,Kauf,Geöffnet,Geöffnet,Geöffnet,Leer,Korrektur,Korrektur', 'Log-Arten: ' + kinds);
 
   await browser.close(); server.close();
   console.log(failed ? `\n${failed} Prüfung(en) fehlgeschlagen` : '\nAlle Prüfungen bestanden');

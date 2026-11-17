@@ -18,7 +18,7 @@
  h2{margin:4px 0 12px}
  .modes{display:flex;gap:8px;margin-bottom:12px}
  .modes button{flex:1;padding:16px;font-size:18px;border:0;border-radius:12px;background:#333;color:#eee}
- .modes button.active.add{background:#2e7d32}.modes button.active.remove{background:#c62828}
+ .modes button.active.add{background:#2e7d32}.modes button.active.remove{background:#1565c0}
  /* Kamerabereich mit fester Höhe; das Videobild wird mittig angezeigt und oben/unten abgeschnitten */
  #camBox{position:relative;height:220px;border-radius:12px;overflow:hidden;background:#000}
  #reader{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%)}
@@ -30,12 +30,27 @@
  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}td,th{padding:6px 4px;border-bottom:1px solid #333;text-align:left}td.n,th.n{text-align:right}
  td.tot,th.tot{background:#1d1d1d}tr.sum td{font-weight:700;border-top:2px solid #555}
  tr.zero td{color:#ff8a80}tr.low td{color:#ffd180}
- td.btns{white-space:nowrap;text-align:right;width:1%;padding-right:0}
- td.btns button{width:40px;height:36px;margin-left:4px;font-size:15px;background:#2b2b2b;color:#eee}
- td.btns button.up{background:#244a26}td.btns button.down{background:#4d2323}
- td.btns button:disabled{opacity:.35}
- td.stock small{color:#888;font-size:11px;white-space:nowrap}
- tr.busy{opacity:.5}
+ .sum3{display:flex;gap:8px;margin:8px 0}
+ .sum3 div{flex:1;background:#222;border-radius:12px;padding:8px;text-align:center}
+ .sum3 b{display:block;font-size:22px}.sum3 span{font-size:12px;color:#aaa}
+ .sum3 .p b{color:#81c784}.sum3 .u b{color:#64b5f6}
+ #list tr.item{cursor:pointer}#list tr.item td{padding:10px 4px}
+ .pill{display:inline-block;min-width:28px;padding:3px 6px;border-radius:8px;text-align:center;font-weight:600}
+ .pp{background:#1e3a20;color:#a5d6a7}.pu{background:#16314a;color:#90caf9}
+ .pill.zero{background:#4a1f1f;color:#ff8a80}.pill.low{background:#4a3a12;color:#ffd180}
+ td.c,th.c{text-align:center}td.chev{color:#555;text-align:right;width:1%}
+ dialog.sheet{margin:auto auto 0;width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));box-sizing:border-box}
+ .st{font-size:18px;font-weight:700}
+ .ctr{display:flex;align-items:center;justify-content:space-between;background:#1a1a1a;border-radius:12px;padding:10px 12px;margin-top:10px}
+ .ctr small{display:block;color:#888;font-size:12px}
+ .ctr .b{display:flex;align-items:center;gap:10px}
+ .ctr button{width:44px;height:40px;font-size:20px}
+ .ctr .v{min-width:28px;text-align:center;font-size:22px;font-weight:700}
+ .act{display:flex;gap:8px;margin-top:12px}
+ .act button{flex:1;padding:12px 6px;border-radius:12px;font-size:20px;color:#fff;display:flex;flex-direction:column;align-items:center;gap:2px}
+ .act button small{font-size:14px}
+ .act .open{background:#1565c0}.act .empty{background:#6d2a2a}
+ dialog.sheet button:disabled{opacity:.4}
  input,select{width:100%;padding:10px;margin:4px 0;font-size:16px;box-sizing:border-box;border-radius:8px;border:1px solid #444;background:#1b1b1b;color:#eee}
  button{font-size:16px;border-radius:8px;border:0;background:#333;color:#eee}
  .row{display:flex;gap:8px;align-items:center}.row button{flex:1;padding:10px}.row input{flex:3}
@@ -55,7 +70,7 @@
 <section id="tScan" class="tab active">
   <div class="modes">
     <button id="bAdd" class="add active">+ Hinzufügen</button>
-    <button id="bRemove" class="remove">− Entnehmen</button>
+    <button id="bRemove" class="remove">📦→🔄 Öffnen</button>
   </div>
   <div id="camBox">
     <div id="reader"></div>
@@ -69,7 +84,12 @@
 
 <section id="tStock" class="tab">
   <h2>Bestand</h2>
-  <input id="filter" type="search" placeholder="Suchen (Farbe, Material, Barcode)">
+  <input id="filter" type="search" placeholder="Suchen (Nr., Farbe, Material, Barcode)">
+  <div class="sum3">
+    <div class="p"><b id="sumP">–</b><span>📦 verpackt</span></div>
+    <div class="u"><b id="sumU">–</b><span>🔄 in Verwendung</span></div>
+    <div><b id="sumT">–</b><span>gesamt</span></div>
+  </div>
   <div id="listInfo" class="hint"></div>
   <table id="list"></table>
 </section>
@@ -102,6 +122,22 @@
   <p class="hint" id="ver"></p>
 </section>
 
+<dialog id="dSpool" class="sheet">
+  <form method="dialog">
+    <div class="st" id="sTitle"></div>
+    <div class="hint" id="sSub"></div>
+    <div class="ctr"><div>📦 Verpackt<small>noch im Karton</small></div><div class="b"><button type="button" data-f="packed" data-d="-1">−</button><span class="v" id="sP"></span><button type="button" data-f="packed" data-d="1">+</button></div></div>
+    <div class="ctr"><div>🔄 In Verwendung<small>offen / im Drucker</small></div><div class="b"><button type="button" data-f="used" data-d="-1">−</button><span class="v" id="sU"></span><button type="button" data-f="used" data-d="1">+</button></div></div>
+    <div class="act">
+      <button type="button" class="open" data-a="open">📦 → 🔄<small>Spule öffnen</small></button>
+      <button type="button" class="empty" data-a="empty">🔄 → 🗑<small>Spule leer</small></button>
+    </div>
+    <div class="hint" id="sMsg" style="min-height:18px;margin-top:8px"></div>
+    <div class="hint">− / + sind Korrekturen und zählen nicht in der Statistik.</div>
+    <button value="close" class="full">Fertig</button>
+  </form>
+</dialog>
+
 <dialog id="dNew">
   <form method="dialog">
     <p id="dTitle"></p>
@@ -129,7 +165,7 @@
 </nav>
 
 <script>
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 let mode = 'add', busy = false, last = '', lastT = 0, entries = [], items = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -177,17 +213,22 @@ $('bTest').onclick = async () => {
 };
 function setStatus(t, cls = ''){ const s = $('setStatus'); s.style.display = 'block'; s.className = 'box ' + cls; s.textContent = t; }
 
-function setMode(m){ mode = m; $('bAdd').classList.toggle('active', m==='add'); $('bRemove').classList.toggle('active', m==='remove'); }
-$('bAdd').onclick = () => setMode('add'); $('bRemove').onclick = () => setMode('remove');
+function setMode(m){ mode = m; $('bAdd').classList.toggle('active', m==='add'); $('bRemove').classList.toggle('active', m==='open'); }
+$('bAdd').onclick = () => setMode('add'); $('bRemove').onclick = () => setMode('open');
 function status(t, cls = ''){ const s = $('status'); s.textContent = t; s.className = 'box ' + cls; }
 const label = i => i.name + ' – ' + i.color;
+// Bestand = verpackt (stock) + in Verwendung (used); Mindestbestand gilt für die Summe
+const total = i => (i.stock || 0) + (i.used || 0);
+const counts = i => '📦 ' + i.stock + ' · 🔄 ' + (i.used || 0);
+const level = i => total(i) <= 0 ? 'zero' : (i.min != null && total(i) <= i.min ? 'low' : '');
+const warnText = i => level(i) === 'zero' ? '  ⚠︎ alles leer – nachkaufen' : level(i) === 'low' ? '  ⚠︎ Mindestbestand (' + i.min + ') erreicht' : '';
 const errText = e => ({
   unauthorized: 'Token falsch oder auf dem Server nicht gesetzt',
   not_configured: 'Bitte zuerst unter ⚙︎ Web-App-URL und Token eintragen',
   busy: 'Server beschäftigt – bitte nochmal versuchen',
   setup_missing: 'Sheet nicht eingerichtet – im Apps Script einmal „setup“ ausführen',
   no_code: 'Kein Barcode erkannt',
-  bad_action: 'Ungültige Aktion'
+  bad_action: 'Apps Script ist veraltet – bitte Code.gs aktualisieren und neue Version bereitstellen'
 }[e] || ('Fehler: ' + e));
 
 // Kurzes akustisches Feedback (iPhone kann nicht vibrieren)
@@ -229,7 +270,7 @@ function askAdd(code, known, materials){
   return new Promise(res => {
     const d = $('dNew');
     $('dTitle').innerHTML = known
-      ? `<b>${esc(label(known))}</b><br><span class="hint">Aktueller Bestand: ${known.stock} · ${esc(code)}</span>`
+      ? `<b>${esc(label(known))}</b><br><span class="hint">Aktuell: ${counts(known)} · ${esc(code)}</span>`
       : `Neuer Artikel: <b>${esc(code)}</b>`;
     $('dNewFields').style.display = known ? 'none' : 'block';
     $('dName').required = $('dColor').required = !known;
@@ -275,13 +316,10 @@ async function handle(code){
     }
     if (res.ok) {
       const i = res.item; beep(true);
-      let t = (res.created ? 'Neu angelegt: ' : '') + (m==='add' ? '+' + qty + ' ' : '−1 ') + label(i) + ' → Bestand ' + i.stock;
-      const low = i.min != null && i.stock <= i.min;
-      if (i.stock === 0) t += '  ⚠︎ leer – nachkaufen';
-      else if (low) t += '  ⚠︎ Mindestbestand (' + i.min + ') erreicht';
-      status(t, low || i.stock === 0 ? 'warn' : 'ok');
+      const t = (res.created ? 'Neu angelegt: ' : '') + (m === 'add' ? '+' + qty + ' ' : 'Geöffnet: ') + label(i) + ' → ' + counts(i) + warnText(i);
+      status(t, level(i) ? 'warn' : 'ok');
     }
-    else if (res.error === 'empty') { beep(false); status(label(res.item) + ' ist schon bei 0', 'err'); }
+    else if (res.error === 'empty') { beep(false); status(label(res.item) + ': keine verpackte Spule mehr', 'err'); }
     else if (res.error === 'unknown_code') { beep(false); status('Unbekannter Barcode ' + code + ' – erst hinzufügen', 'err'); }
     else { beep(false); status(errText(res.error), 'err'); }
   } catch(e){ beep(false); status('Netzwerkfehler: ' + e.message, 'err'); }
@@ -304,37 +342,46 @@ const byNr = (a, b) => (a.nr ?? Infinity) - (b.nr ?? Infinity) || String(a.color
 function renderList(){
   const q = $('filter').value.trim().toLowerCase();
   const shown = items.filter(i => !q || [i.nr, i.color, i.name, i.code].some(x => String(x ?? '').toLowerCase().includes(q))).sort(byNr);
-  const total = shown.reduce((s, i) => s + i.stock, 0);
-  const warn = items.filter(i => i.stock <= 0 || (i.min != null && i.stock <= i.min)).length;
-  $('listInfo').textContent = items.length + ' Artikel' + (warn ? ' · ' + warn + ' leer/unter Mindestbestand' : '');
-  $('list').innerHTML = '<tr><th class="n">Nr.</th><th>Farbe</th><th class="n">Spulen</th><th></th></tr>' +
-    shown.map(i => `<tr class="${i.stock <= 0 ? 'zero' : (i.min != null && i.stock <= i.min ? 'low' : '')}" title="${esc(i.name + ' · ' + i.code)}">` +
-      `<td class="n">${i.nr ?? ''}</td><td>${esc(i.color)}</td>` +
-      `<td class="n stock">${i.stock}${i.min != null ? `<small> / min ${i.min}</small>` : ''}</td>` +
-      `<td class="btns"><button class="up" data-code="${esc(i.code)}" aria-label="Hoch">▲</button><button class="down" data-code="${esc(i.code)}" aria-label="Runter" ${i.stock <= 0 ? 'disabled' : ''}>▼</button></td></tr>`).join('') +
-    `<tr class="sum"><td></td><td>Summe</td><td class="n">${total}</td><td></td></tr>`;
+  const sP = items.reduce((s, i) => s + i.stock, 0), sU = items.reduce((s, i) => s + (i.used || 0), 0);
+  $('sumP').textContent = sP; $('sumU').textContent = sU; $('sumT').textContent = sP + sU;
+  const warn = items.filter(level).length;
+  $('listInfo').textContent = items.length + ' Farben' + (warn ? ' · ' + warn + ' am/unter Mindestbestand' : '') + ' · Zeile antippen für Details';
+  $('list').innerHTML = '<tr><th class="n">Nr.</th><th>Farbe</th><th class="c">📦</th><th class="c">🔄</th><th></th></tr>' +
+    shown.map(i => `<tr class="item" data-code="${esc(i.code)}"><td class="n">${i.nr ?? ''}</td><td>${esc(i.color)}</td>` +
+      `<td class="c"><span class="pill pp ${level(i)}">${i.stock}</span></td><td class="c"><span class="pill pu">${i.used || 0}</span></td><td class="chev">›</td></tr>`).join('');
 }
-// Hoch/Runter in der Bestandsliste: jeder Klick bucht +1 bzw. −1 (inkl. Log-Eintrag im Sheet)
-$('list').onclick = async e => {
-  const b = e.target.closest('button[data-code]');
-  if (!b || b.disabled) return;
-  const code = b.dataset.code, up = b.classList.contains('up');
-  const row = b.closest('tr'); row.querySelectorAll('button').forEach(x => x.disabled = true); row.classList.add('busy');
-  try {
-    const res = await api(up ? { action: 'add', code, qty: 1 } : { action: 'remove', code });
-    if (res.ok) {
-      const i = items.find(x => x.code === code); if (i) Object.assign(i, res.item);
-      beep(true);
-      $('listInfo').textContent = (up ? '+1 ' : '−1 ') + label(res.item) + ' → Bestand ' + res.item.stock;
-      setTimeout(renderList, 1200);
-    } else {
-      beep(false);
-      $('listInfo').textContent = res.error === 'empty' ? label(res.item) + ' ist schon bei 0' : errText(res.error);
-    }
-  } catch (err) { beep(false); $('listInfo').textContent = 'Netzwerkfehler: ' + err.message; }
-  // Zeile sofort aktualisieren, Info-Text bleibt kurz stehen
-  const keep = $('listInfo').textContent; renderList(); $('listInfo').textContent = keep;
+// Detail-Box einer Farbe: Spule öffnen / Spule leer, −/+ als Korrektur. Jede Aktion wird sofort gebucht und geloggt.
+let spool = null;
+$('list').onclick = e => {
+  const tr = e.target.closest('tr.item'); if (!tr) return;
+  spool = items.find(i => i.code === tr.dataset.code); if (!spool) return;
+  $('sMsg').textContent = ''; renderSpool(); $('dSpool').showModal();
 };
+function renderSpool(){
+  const i = spool;
+  $('sTitle').textContent = (i.nr != null ? i.nr + ' · ' : '') + i.color;
+  $('sSub').textContent = i.name + (i.min != null ? ' · Mindestbestand ' + i.min : '');
+  $('sP').textContent = i.stock; $('sU').textContent = i.used || 0;
+  $('dSpool').querySelectorAll('button[data-a], button[data-f]').forEach(x => x.disabled = false);
+  $('dSpool').querySelector('[data-a=open]').disabled = i.stock <= 0;
+  $('dSpool').querySelector('[data-a=empty]').disabled = !(i.used > 0);
+  $('dSpool').querySelector('[data-f=packed][data-d="-1"]').disabled = i.stock <= 0;
+  $('dSpool').querySelector('[data-f=used][data-d="-1"]').disabled = !(i.used > 0);
+}
+$('dSpool').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-a], button[data-f]'); if (!b || b.disabled || !spool) return;
+  const body = b.dataset.a ? { action: b.dataset.a, code: spool.code } : { action: 'adjust', code: spool.code, field: b.dataset.f, delta: +b.dataset.d };
+  const btns = $('dSpool').querySelectorAll('button[data-a], button[data-f]'); btns.forEach(x => x.disabled = true);
+  $('sMsg').textContent = '…';
+  try {
+    const res = await api(body);
+    if (res.ok) {
+      Object.assign(spool, res.item); beep(true);
+      $('sMsg').textContent = ({ 'Geöffnet': 'Spule geöffnet ✓', 'Leer': 'Spule leer – als verbraucht gezählt ✓', 'Korrektur': 'Korrigiert ✓' }[res.kind] || '✓') + warnText(spool);
+    } else { beep(false); $('sMsg').textContent = res.error === 'empty' ? 'Geht nicht – schon bei 0' : errText(res.error); }
+  } catch (err) { beep(false); $('sMsg').textContent = 'Netzwerkfehler: ' + err.message; }
+  renderSpool(); renderList();
+});
 $('filter').oninput = renderList;
 
 // Statistik: Tabelle je Farbe – Verbraucht/Gekauft im gewählten Zeitraum, ganz rechts Gesamt über alle Zeit
@@ -361,8 +408,10 @@ function renderStats(){
   entries.forEach(e => {
     const r = rows[e.label] || (rows[e.label] = { u:0, b:0, U:0, B:0 });
     const inP = e.t >= f && e.t <= t;
-    if (e.d < 0) { r.U -= e.d; sum.U -= e.d; if (inP) { r.u -= e.d; sum.u -= e.d; } }
-    else { r.B += e.d; sum.B += e.d; if (inP) { r.b += e.d; sum.b += e.d; } }
+    const bought = e.kind === 'Kauf' || (!e.kind && e.d > 0) ? e.d : 0;
+    const used = e.kind === 'Leer' || (!e.kind && e.d < 0) ? -e.d : 0;
+    if (used) { r.U += used; sum.U += used; if (inP) { r.u += used; sum.u += used; } }
+    if (bought) { r.B += bought; sum.B += bought; if (inP) { r.b += bought; sum.b += bought; } }
   });
   const line = (name, r, cls='') => `<tr class="${cls}"><td>${esc(name)}</td><td class="n">${r.u}</td><td class="n">${r.b}</td><td class="n tot">${r.U}</td><td class="n tot">${r.B}</td></tr>`;
   $('stats').innerHTML =
@@ -447,7 +496,7 @@ async function startCamera(){
     try { await openCamera(id); }
     catch (e) { if (!id) throw e; await stopCamera(); await openCamera(''); } // Rückfall: Standard-Rückkamera
     camUi(true);
-    status((mode === 'add' ? '+ Hinzufügen' : '− Entnehmen') + ': Barcode in den Rahmen halten');
+    status((mode === 'add' ? '+ Hinzufügen' : '📦→🔄 Öffnen') + ': Barcode in den Rahmen halten');
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => { if (scanning) { stopCamera(); status('Kamera nach 60 s ohne Treffer ausgeschaltet'); } }, 60000);
   } catch (e) {

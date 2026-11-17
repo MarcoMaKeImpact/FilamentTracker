@@ -21,6 +21,7 @@ function fakeSheet(name) {
       return api;
     },
     insertColumnBefore(i) { rows.forEach(r => r.splice(i - 1, 0, '')); },
+    insertColumnAfter(i) { rows.forEach(r => { while (r.length < i) r.push(''); r.splice(i, 0, ''); }); },
     getParent: () => parent,
     setFrozenRows() {}, setConditionalFormatRules(r) { this.rules = r; }
   };
