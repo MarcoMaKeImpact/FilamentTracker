@@ -1,6 +1,6 @@
 # Filament-Tracker
 
-Filamentspulen per iPhone-Kamera scannen (EAN-Barcode auf dem Bambu-Karton) und den Bestand in einem Google Sheet um **+1** (Hinzufügen) oder **−1** (Entnehmen) ändern. Unbekannte Barcodes werden beim ersten Hinzufügen mit Bezeichnung, Farbe und optionalem Mindestbestand angelegt.
+Filamentspulen per iPhone-Kamera scannen (EAN-Barcode auf dem Bambu-Karton) und im Google Sheet zählen: verpackte Spulen und Spulen in Verwendung. Unbekannte Barcodes werden beim ersten Hinzufügen mit Material, Farbe und optionalem Mindestbestand angelegt.
 
 ```
 iPhone (PWA, GitHub Pages)  ──POST JSON + Token──▶  Apps Script Web-App  ──▶  Google Sheet „Filament Tracker“
