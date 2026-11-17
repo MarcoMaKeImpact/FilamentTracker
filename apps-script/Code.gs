@@ -1,6 +1,8 @@
 /**
  * Filament-Tracker – Google Apps Script Web-App-API
  *
+ * Aktionen: ping | list | lookup | add (code, qty, bei neuem Code name/color/min) | remove (code) | stats
+ *
  * Bestand: Barcode | Bezeichnung | Farbe | Bestand | Zuletzt geändert | Mindestbestand
  * Log:     Zeit | Barcode | Bezeichnung | Farbe | Änderung
  *
@@ -16,7 +18,7 @@ const SHEET = 'Bestand';
 const LOG = 'Log';
 const HEAD = ['Barcode', 'Bezeichnung', 'Farbe', 'Bestand', 'Zuletzt geändert', 'Mindestbestand'];
 const LOG_HEAD = ['Zeit', 'Barcode', 'Bezeichnung', 'Farbe', 'Änderung'];
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 function book() {
   const active = SpreadsheetApp.getActive();
@@ -106,16 +108,18 @@ function doPost(e) {
 
     if (p.action === 'lookup') return out({ ok: true, found: row > 0, item: row > 0 ? item(data[row]) : null });
     if (p.action !== 'add' && p.action !== 'remove') return out({ ok: false, error: 'bad_action' });
-    const delta = p.action === 'add' ? 1 : -1;
+    // Menge (nur beim Hinzufügen): ganze Zahl 1–999, Standard 1
+    const qty = p.action === 'add' ? Math.min(999, Math.max(1, Math.floor(Number(p.qty)) || 1)) : 1;
+    const delta = p.action === 'add' ? qty : -1;
 
     if (row < 0) {
       if (delta < 0) return out({ ok: false, error: 'unknown_code', code });
       const name = String(p.name || '').trim(), color = String(p.color || '').trim();
       if (!name || !color) return out({ ok: false, error: 'need_details', code }); // Farbe ist Pflicht
       const min = p.min === '' || p.min == null || isNaN(Number(p.min)) ? '' : Math.max(0, Math.floor(Number(p.min)));
-      sh.appendRow([code, name, color, 1, new Date(), min]);
-      log(ss, code, name, color, 1);
-      return out({ ok: true, created: true, item: { code, name, color, stock: 1, min: min === '' ? null : min } });
+      sh.appendRow([code, name, color, qty, new Date(), min]);
+      log(ss, code, name, color, qty);
+      return out({ ok: true, created: true, qty, item: { code, name, color, stock: qty, min: min === '' ? null : min } });
     }
 
     const it = item(data[row]);
@@ -123,7 +127,7 @@ function doPost(e) {
     it.stock += delta;
     sh.getRange(row + 1, 4, 1, 2).setValues([[it.stock, new Date()]]);
     log(ss, code, it.name, it.color, delta);
-    return out({ ok: true, item: it });
+    return out({ ok: true, qty: Math.abs(delta), item: it });
   } catch (err) {
     return out({ ok: false, error: String(err) });
   } finally {

@@ -36,7 +36,7 @@ const server = http.createServer((req, res) => {
   const status = () => page.textContent('#status');
   const scan = async code => {
     await page.fill('#manual', code); await page.click('#bManual');
-    await page.waitForFunction(() => !document.getElementById('status').textContent.startsWith('Sende'));
+    await page.waitForFunction(() => !/^(Sende|Suche)/.test(document.getElementById('status').textContent));
   };
 
   // Einrichtung per Link-Hash
@@ -56,19 +56,39 @@ const server = http.createServer((req, res) => {
   await page.fill('#dName', 'PLA Basic'); await page.fill('#dColor', 'Schwarz'); await page.fill('#dMin', '1');
   await page.click('#dNew button[value=ok]');
   await page.waitForFunction(() => document.getElementById('status').textContent.includes('Bestand'));
-  check((await status()).includes('Neu angelegt: PLA Basic – Schwarz → Bestand 1'), 'Neu angelegt mit Bestand 1: ' + await status());
+  check((await status()).includes('Neu angelegt: +1 PLA Basic – Schwarz → Bestand 1'), 'Neu angelegt mit Bestand 1: ' + await status());
   await page.screenshot({ path: path.join(SHOTS, '1-neu.png') });
   await page.waitForTimeout(1500);
   check(await page.evaluate(() => scanner.getState()) === 2, 'Kamera läuft nach dem Dialog weiter');
 
-  // 2) Erneut hinzufügen → +1
-  await scan('6975337034001');
-  check((await status()).includes('+1 PLA Basic – Schwarz → Bestand 2'), '+1 → ' + await status());
+  // 2) Erneut hinzufügen → Box mit Menge, nur Menge sichtbar; + zweimal, − einmal → 2
+  await page.fill('#manual', '6975337034001'); await page.click('#bManual');
+  await page.waitForSelector('#dNew[open]');
+  check(await page.isHidden('#dName') && (await page.textContent('#dTitle')).includes('Aktueller Bestand: 1'), 'Box für bekannten Artikel zeigt nur Menge und aktuellen Bestand');
+  await page.click('#dPlus'); await page.click('#dPlus'); await page.click('#dMinus');
+  check(await page.inputValue('#dQty') === '2', 'Plus/Minus ändert die Menge');
+  await page.screenshot({ path: path.join(SHOTS, '1b-menge.png') });
+  await page.click('#dOk');
+  await page.waitForFunction(() => document.getElementById('status').textContent.includes('→ Bestand'));
+  check((await status()).includes('+2 PLA Basic – Schwarz → Bestand 3'), '+2 → ' + await status());
+
+  // 2b) Menge direkt eintippen: 10
+  await page.fill('#manual', '6975337034001'); await page.click('#bManual');
+  await page.waitForSelector('#dNew[open]');
+  await page.fill('#dQty', '10'); await page.click('#dOk');
+  await page.waitForFunction(() => document.getElementById('status').textContent.includes('Bestand 13'));
+  check(true, '+10 → ' + await status());
+  // für die weiteren Tests wieder auf 3 reduzieren (10× entnehmen)
+  await page.click('#bRemove');
+  for (let n = 0; n < 10; n++) await scan('6975337034001');
+  check((await status()).includes('Bestand 3'), '10× entnehmen → ' + await status());
+  await page.click('#bAdd');
 
   // 3) Entnehmen −1 (zweimal), dann bei 0 Fehlermeldung
   await page.click('#bRemove');
   await scan('6975337034001');
-  check((await status()).includes('−1') && (await status()).includes('Bestand 1'), '−1 → ' + await status());
+  check((await status()).includes('−1') && (await status()).includes('Bestand 2'), '−1 → ' + await status());
+  await scan('6975337034001');
   await scan('6975337034001');
   check((await status()).includes('Bestand 0'), '−1 → ' + await status());
   await scan('6975337034001');
@@ -96,7 +116,7 @@ const server = http.createServer((req, res) => {
   await page.click('nav button[data-t=tStats]');
   await page.waitForFunction(() => document.getElementById('stats').textContent.includes('Summe'));
   const sumRow = await page.$$eval('#stats tr.sum td', tds => tds.map(t => t.textContent));
-  check(JSON.stringify(sumRow) === JSON.stringify(['Summe', '2', '2', '2', '2']), 'Statistik-Summe ' + sumRow.join(' | '));
+  check(JSON.stringify(sumRow) === JSON.stringify(['Summe', '13', '13', '13', '13']), 'Statistik-Summe ' + sumRow.join(' | '));
   await page.screenshot({ path: path.join(SHOTS, '3-statistik.png') });
 
   // 7) Falscher Token
@@ -116,7 +136,7 @@ const server = http.createServer((req, res) => {
   // Sheet-Inhalt prüfen
   const rows = gas.sheets.Bestand.rows;
   check(rows.length === 2 && rows[1][3] === 0 && rows[1][5] === 1, 'Sheet: Bestand 0, Mindestbestand 1');
-  check(gas.sheets.Log.rows.length === 5, 'Log: 4 Einträge');
+  check(gas.sheets.Log.rows.length === 1 + 3 + 13, 'Log: 16 Einträge, Zugänge mit Menge');
 
   await browser.close(); server.close();
   console.log(failed ? `\n${failed} Prüfung(en) fehlgeschlagen` : '\nAlle Prüfungen bestanden');

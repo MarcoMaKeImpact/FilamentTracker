@@ -75,6 +75,17 @@ test('ungültige Aktion, fehlender Code, kaputtes JSON', () => {
   assert.equal(ctx.doPost({ postData: { contents: '{kaputt' } }).ok, false);
 });
 
+test('Menge beim Hinzufügen (neu und bestehend), Log mit Menge', () => {
+  const { call, sheets } = env();
+  const r = call({ action: 'add', code: '42', name: 'PLA', color: 'Blau', qty: 10 });
+  assert.equal(r.item.stock, 10); assert.equal(r.qty, 10);
+  assert.equal(call({ action: 'add', code: '42', qty: '3' }).item.stock, 13);
+  assert.equal(call({ action: 'add', code: '42', qty: 0 }).item.stock, 14);    // ungültig → 1
+  assert.equal(call({ action: 'add', code: '42', qty: 5000 }).item.stock, 1013); // max 999
+  assert.equal(call({ action: 'remove', code: '42', qty: 5 }).item.stock, 1012); // Entnehmen immer 1
+  assert.deepEqual(sheets.Log.rows.slice(1).map(r => r[4]), [10, 3, 1, 999, -1]);
+});
+
 test('doGet liefert Lebenszeichen ohne Daten', () => {
   const { ctx } = env();
   assert.equal(ctx.doGet().ok, true);

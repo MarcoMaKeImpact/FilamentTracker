@@ -37,6 +37,8 @@
  dialog{background:#222;color:#eee;border:0;border-radius:12px;width:90%;max-width:420px}
  dialog::backdrop{background:rgba(0,0,0,.6)}
  label{display:block;margin-top:8px;font-size:14px;color:#bbb}
+ .qty button{flex:0 0 56px;padding:10px;font-size:22px}.qty input{text-align:center;font-size:22px}
+ #dOk{background:#2e7d32}
 </style>
 </head>
 <body>
@@ -46,6 +48,7 @@
     <button id="bRemove" class="remove">− Entnehmen</button>
   </div>
   <div id="reader"></div>
+  <div id="zoomRow" class="row" style="display:none;margin-top:8px"><span class="hint">Zoom</span><input id="zoom" type="range" step="0.1" style="flex:1"><span id="zoomVal" class="hint" style="width:40px;text-align:right"></span></div>
   <div id="status" class="box">Bereit zum Scannen</div>
   <div class="row"><input id="manual" placeholder="Barcode manuell" inputmode="numeric" autocomplete="off"><button id="bManual">OK</button></div>
 </section>
@@ -77,6 +80,9 @@
   <button id="bSave" class="full">Speichern</button>
   <button id="bTest" class="full">Verbindung testen</button>
   <div id="setStatus" class="box" style="display:none"></div>
+  <label for="cam">Kamera</label>
+  <select id="cam"><option value="">Automatisch (Makro-fähige Kamera bevorzugt)</option></select>
+  <p class="hint">Wenn der Barcode aus der Nähe unscharf bleibt, hier eine andere Rückkamera probieren, z. B. „Dreifach-“, „Dual-Weitwinkel-“ oder „Ultraweitwinkel-Kamera“.</p>
   <p class="hint">Nach dem Speichern stehen URL und Token in der Adresse der Seite. Füge die App <b>danach</b> in Safari über Teilen → „Zum Home-Bildschirm“ hinzu, dann sind die Einstellungen im Icon enthalten und gehen nicht mehr verloren.</p>
   <p class="hint">Tipp: Statt beide Felder einzeln auszufüllen, kannst du auch den kompletten Einrichtungslink <code>…/#url=WEB_APP_URL&amp;token=TOKEN</code> ins URL-Feld einfügen.</p>
   <p class="hint" id="ver"></p>
@@ -84,15 +90,19 @@
 
 <dialog id="dNew">
   <form method="dialog">
-    <p>Neuer Artikel: <b id="dCode"></b></p>
-    <label for="dName">Bezeichnung *</label>
-    <input id="dName" placeholder="z. B. PLA Basic" required>
-    <label for="dColor">Farbe *</label>
-    <input id="dColor" placeholder="z. B. Schwarz" required list="colors">
-    <label for="dMin">Mindestbestand (optional)</label>
-    <input id="dMin" type="number" min="0" step="1" inputmode="numeric" placeholder="z. B. 1">
+    <p id="dTitle"></p>
+    <div id="dNewFields">
+      <label for="dName">Bezeichnung *</label>
+      <input id="dName" placeholder="z. B. PLA Basic">
+      <label for="dColor">Farbe *</label>
+      <input id="dColor" placeholder="z. B. Schwarz" list="colors">
+      <label for="dMin">Mindestbestand (optional)</label>
+      <input id="dMin" type="number" min="0" step="1" inputmode="numeric" placeholder="z. B. 1">
+    </div>
+    <label for="dQty">Menge (Spulen)</label>
+    <div class="row qty"><button type="button" id="dMinus">−</button><input id="dQty" type="number" min="1" max="999" step="1" inputmode="numeric" value="1" required><button type="button" id="dPlus">+</button></div>
     <datalist id="colors"></datalist>
-    <div class="row" style="margin-top:12px"><button value="cancel" formnovalidate>Abbrechen</button><button value="ok">Anlegen</button></div>
+    <div class="row" style="margin-top:12px"><button value="cancel" formnovalidate>Abbrechen</button><button value="ok" id="dOk">Hinzufügen</button></div>
   </form>
 </dialog>
 
@@ -104,7 +114,7 @@
 </nav>
 
 <script>
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 let mode = 'add', busy = false, last = '', lastT = 0, entries = [], items = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -196,12 +206,25 @@ async function api(body){
   catch { throw new Error('Antwort ist kein JSON – stimmt die URL (muss auf /exec enden) und ist Zugriff „Jeder“ eingestellt?'); }
 }
 
-// Neuer Artikel: Bezeichnung und Farbe sind Pflicht
-function askDetails(code){
+// Box beim Hinzufügen: Menge immer, bei neuen Artikeln zusätzlich Bezeichnung/Farbe (Pflicht) und Mindestbestand
+$('dMinus').onclick = () => { $('dQty').value = Math.max(1, (parseInt($('dQty').value) || 1) - 1); };
+$('dPlus').onclick = () => { $('dQty').value = Math.min(999, (parseInt($('dQty').value) || 0) + 1); };
+function askAdd(code, known){
   return new Promise(res => {
-    const d = $('dNew'); $('dCode').textContent = code; $('dName').value = ''; $('dColor').value = ''; $('dMin').value = '';
+    const d = $('dNew');
+    $('dTitle').innerHTML = known
+      ? `<b>${esc(label(known))}</b><br><span class="hint">Aktueller Bestand: ${known.stock} · ${esc(code)}</span>`
+      : `Neuer Artikel: <b>${esc(code)}</b>`;
+    $('dNewFields').style.display = known ? 'none' : 'block';
+    $('dName').required = $('dColor').required = !known;
+    $('dName').value = ''; $('dColor').value = ''; $('dMin').value = ''; $('dQty').value = 1;
+    $('dOk').textContent = known ? 'Hinzufügen' : 'Anlegen';
     $('colors').innerHTML = [...new Set(items.map(i => i.color).filter(Boolean))].sort().map(c => `<option value="${esc(c)}">`).join('');
-    d.onclose = () => res(d.returnValue === 'ok' ? { name: $('dName').value.trim(), color: $('dColor').value.trim(), min: $('dMin').value.trim() } : null);
+    d.onclose = () => {
+      if (d.returnValue !== 'ok') return res(null);
+      const qty = Math.min(999, Math.max(1, parseInt($('dQty').value) || 1));
+      res(known ? { qty } : { qty, name: $('dName').value.trim(), color: $('dColor').value.trim(), min: $('dMin').value.trim() });
+    };
     d.returnValue = '';
     d.showModal();
   });
@@ -214,18 +237,28 @@ async function handle(code){
   busy = true; last = code; lastT = now;
   const m = mode; // Modus zum Scanzeitpunkt festhalten
   try {
-    status('Sende ' + code + ' …');
-    let res = await api({ action: m, code });
-    if (!res.ok && res.error === 'need_details') {
+    let res, qty = 1;
+    if (m === 'add') {
+      status('Suche ' + code + ' …');
+      const lk = await api({ action: 'lookup', code });
+      if (!lk.ok) { beep(false); status(errText(lk.error), 'err'); return; }
       pauseScanner();
-      const det = await askDetails(code);
+      const det = await askAdd(code, lk.found ? lk.item : null);
       resumeScanner();
-      if (!det || !det.name || !det.color) { status('Abgebrochen – Bezeichnung und Farbe sind Pflicht', 'warn'); beep(false); return; }
+      if (!det) { status('Abgebrochen', 'warn'); return; }
+      if (!lk.found && (!det.name || !det.color)) { status('Abgebrochen – Bezeichnung und Farbe sind Pflicht', 'warn'); beep(false); return; }
+      qty = det.qty;
+      status('Sende ' + code + ' …');
       res = await api({ action: 'add', code, ...det });
+      // Älteres Apps Script ohne Mengen-Unterstützung: restliche Spulen einzeln buchen
+      for (let n = 1; res.ok && res.qty === undefined && n < qty; n++) res = await api({ action: 'add', code });
+    } else {
+      status('Sende ' + code + ' …');
+      res = await api({ action: m, code });
     }
     if (res.ok) {
       const i = res.item; beep(true);
-      let t = (res.created ? 'Neu angelegt: ' : (m==='add' ? '+1 ' : '−1 ')) + label(i) + ' → Bestand ' + i.stock;
+      let t = (res.created ? 'Neu angelegt: ' : '') + (m==='add' ? '+' + qty + ' ' : '−1 ') + label(i) + ' → Bestand ' + i.stock;
       const low = i.min != null && i.stock <= i.min;
       if (i.stock === 0) t += '  ⚠︎ leer – nachkaufen';
       else if (low) t += '  ⚠︎ Mindestbestand (' + i.min + ') erreicht';
@@ -299,18 +332,72 @@ function renderStats(){
 $('period').onchange = renderStats; $('from').onchange = renderStats; $('to').onchange = renderStats;
 
 // Kamera-Scanner (html5-qrcode, lokal unter vendor/ abgelegt)
-let scanner = null, scanning = false;
+// iPhones geben dem Browser standardmäßig die Hauptkamera, die erst ab ca. 20 cm scharf stellt.
+// Die virtuelle „Dreifach-/Dual-Weitwinkel-Kamera“ wechselt wie die Kamera-App automatisch in den Makromodus.
+let scanner = null, scanning = false, cams = [];
+const pref = { get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+const MACRO = /triple|dreifach|dual/i;
 function pauseScanner(){ if (scanning) { try { scanner.pause(true); } catch {} } }
 function resumeScanner(){ if (scanning) { try { scanner.resume(); } catch {} } }
-if (window.Html5Qrcode) {
+const scanConfig = video => ({ fps: 10, videoConstraints: video,
+  qrbox: (w, h) => ({ width: Math.min(320, w * 0.9) | 0, height: Math.min(160, h * 0.6) | 0 }) });
+const HIRES = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+
+async function startCamera(id){
+  if (scanning) { try { await scanner.stop(); } catch {} scanning = false; }
+  $('zoomRow').style.display = 'none';
+  const video = id ? { deviceId: { exact: id }, ...HIRES } : { facingMode: 'environment', ...HIRES };
+  await scanner.start(video, scanConfig(video), c => handle(c));
+  scanning = true;
+  setupZoom(id);
+}
+function setupZoom(id){
+  try {
+    const caps = scanner.getRunningTrackCapabilities();
+    try { scanner.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); } catch {}
+    if (!caps.zoom || caps.zoom.max <= caps.zoom.min) return;
+    const z = $('zoom'); z.min = caps.zoom.min; z.max = Math.min(caps.zoom.max, 10);
+    const cam = cams.find(c => c.id === id);
+    // Virtuelle Mehrfachkamera: Zoom 2 entspricht „1x“ der Kamera-App
+    const def = cam && MACRO.test(cam.label) && caps.zoom.max >= 2 ? 2 : caps.zoom.min;
+    const v = parseFloat(pref.get('zoom:' + (id || 'env'))) || def;
+    const apply = val => { $('zoomVal').textContent = (+val).toFixed(1) + '×'; scanner.applyVideoConstraints({ advanced: [{ zoom: +val }] }).catch(() => {}); };
+    z.value = v; apply(v);
+    z.oninput = () => { apply(z.value); pref.set('zoom:' + (id || 'env'), z.value); };
+    $('zoomRow').style.display = 'flex';
+  } catch {}
+}
+async function initScanner(){
   scanner = new Html5Qrcode('reader', { verbose: false, formatsToSupport: [
     Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A,
     Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.QR_CODE ],
     experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
-  scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: (w, h) => ({ width: Math.min(300, w * 0.85) | 0, height: Math.min(150, h * 0.6) | 0 }) }, c => handle(c))
-    .then(() => { scanning = true; })
-    .catch(e => status('Kamera nicht verfügbar: ' + e + ' – Barcode unten manuell eingeben', 'err'));
-} else status('Scanner-Bibliothek nicht geladen – Barcode manuell eingeben', 'err');
+  const chosen = pref.get('cam');
+  try { await startCamera(chosen); }
+  catch (e) {
+    if (!chosen) throw e;
+    pref.set('cam', ''); await startCamera(''); // gespeicherte Kamera gibt es nicht mehr
+  }
+  // Kameraliste erst nach erteilter Berechtigung verfügbar (vorher keine Namen)
+  try { cams = await Html5Qrcode.getCameras(); } catch { cams = []; }
+  $('cam').innerHTML = '<option value="">Automatisch (Makro-fähige Kamera bevorzugt)</option>' +
+    cams.map(c => `<option value="${esc(c.id)}">${esc(c.label || c.id)}</option>`).join('');
+  $('cam').value = pref.get('cam');
+  // Automatik: auf die Makro-fähige virtuelle Kamera wechseln, falls vorhanden
+  if (!pref.get('cam')) {
+    const macro = cams.find(c => MACRO.test(c.label) && !/front|vorder/i.test(c.label));
+    if (macro) { pref.set('autoCam', macro.id); await startCamera(macro.id); }
+    else setupZoom('');
+  }
+}
+$('cam').onchange = async () => {
+  pref.set('cam', $('cam').value);
+  try { await startCamera($('cam').value || pref.get('autoCam')); }
+  catch (e) { status('Kamera konnte nicht gestartet werden: ' + e, 'err'); }
+  pauseScanner(); // Einstellungen sind offen – beim Zurückwechseln läuft sie weiter
+};
+if (window.Html5Qrcode) initScanner().catch(e => status('Kamera nicht verfügbar: ' + e + ' – Barcode unten manuell eingeben', 'err'));
+else status('Scanner-Bibliothek nicht geladen – Barcode manuell eingeben', 'err');
 
 if (!store.get('url') || !store.get('token')) status('Willkommen! Bitte zuerst unter ⚙︎ Web-App-URL und Token eintragen.', 'warn');
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
