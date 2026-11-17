@@ -41,7 +41,12 @@ const server = http.createServer((req, res) => {
 
   // Einrichtung per Link-Hash
   await page.goto(base + '#url=' + encodeURIComponent(API) + '&token=geheim');
-  check(!page.url().includes('token='), 'Token wird aus der Adresse entfernt');
+  check(page.url().includes('token=geheim'), 'Token bleibt in der Adresse (für Home-Bildschirm-Icon)');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.click('nav button[data-t=tSet]');
+  check(await page.inputValue('#token') === 'geheim', 'Nach Neustart ohne Speicher: Werte kommen aus der Adresse');
+  await page.click('nav button[data-t=tScan]');
   check(await page.evaluate(() => localStorage.getItem('token')) === 'geheim', 'Token lokal gespeichert');
 
   // 1) Unbekannter Barcode → Dialog

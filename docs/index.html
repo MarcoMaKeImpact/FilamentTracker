@@ -8,7 +8,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Filament">
 <meta name="theme-color" content="#111111">
-<link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Filament-Tracker</title>
@@ -78,7 +77,8 @@
   <button id="bSave" class="full">Speichern</button>
   <button id="bTest" class="full">Verbindung testen</button>
   <div id="setStatus" class="box" style="display:none"></div>
-  <p class="hint">Tipp: Statt beide Felder einzeln auszufüllen, kannst du den kompletten Einrichtungslink <code>…/#url=WEB_APP_URL&amp;token=TOKEN</code> ins URL-Feld einfügen und „Speichern“ tippen.</p>
+  <p class="hint">Nach dem Speichern stehen URL und Token in der Adresse der Seite. Füge die App <b>danach</b> in Safari über Teilen → „Zum Home-Bildschirm“ hinzu, dann sind die Einstellungen im Icon enthalten und gehen nicht mehr verloren.</p>
+  <p class="hint">Tipp: Statt beide Felder einzeln auszufüllen, kannst du auch den kompletten Einrichtungslink <code>…/#url=WEB_APP_URL&amp;token=TOKEN</code> ins URL-Feld einfügen.</p>
   <p class="hint" id="ver"></p>
 </section>
 
@@ -104,7 +104,7 @@
 </nav>
 
 <script>
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 let mode = 'add', busy = false, last = '', lastT = 0, entries = [], items = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -112,14 +112,22 @@ const store = { get: k => { try { return localStorage.getItem(k) || ''; } catch 
                 set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 $('ver').textContent = 'Version ' + APP_VERSION;
 
-// Einrichtung per Link: #url=…&token=… (Hash wird nie an einen Server gesendet)
+// Einrichtung per Link: #url=…&token=… (auch ?url=…&token=…). Die Werte BLEIBEN in der Adresse,
+// damit „Zum Home-Bildschirm“ sie ins Icon übernimmt und die App sie bei jedem Start wieder hat.
+// Zusätzlich wird lokal gespeichert (Fallback, falls die Adresse ohne Werte geöffnet wird).
+function linkParams(){
+  const h = new URLSearchParams(location.hash.slice(1)), q = new URLSearchParams(location.search);
+  return { url: (h.get('url') || q.get('url') || '').trim(), token: (h.get('token') || q.get('token') || '').trim() };
+}
+function writeLink(){
+  const u = store.get('url'), t = store.get('token');
+  if (u && t) history.replaceState(null, '', location.pathname + '#url=' + encodeURIComponent(u) + '&token=' + encodeURIComponent(t));
+}
 (() => {
-  const h = new URLSearchParams(location.hash.slice(1));
-  if (h.get('url') || h.get('token')) {
-    if (h.get('url')) store.set('url', h.get('url').trim());
-    if (h.get('token')) store.set('token', h.get('token').trim());
-    history.replaceState(null, '', location.pathname + location.search);
-  }
+  const p = linkParams();
+  if (p.url) store.set('url', p.url);
+  if (p.token) store.set('token', p.token);
+  writeLink(); // Adresse vereinheitlichen bzw. aus gespeicherten Werten wiederherstellen
 })();
 
 $('url').value = store.get('url'); $('token').value = store.get('token');
@@ -130,6 +138,7 @@ function saveSettings(){
   if (i >= 0) { const h = new URLSearchParams(u.slice(i + 1)); if (h.get('url')) { u = h.get('url').trim(); t = (h.get('token') || t).trim(); } }
   $('url').value = u; $('token').value = t;
   store.set('url', u); store.set('token', t);
+  writeLink();
 }
 $('bSave').onclick = () => { saveSettings(); setStatus('Gespeichert', 'ok'); };
 $('bTest').onclick = async () => {

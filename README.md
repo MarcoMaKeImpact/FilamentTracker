@@ -16,7 +16,7 @@ iPhone (PWA, GitHub Pages)  ──POST JSON + Token──▶  Apps Script Web-Ap
 |---|---|
 | `docs/` | Die PWA, wird von GitHub Pages ausgeliefert (Branch `main`, Ordner `/docs`) |
 | `docs/index.html` | App: Scannen, Bestand, Statistik, Einstellungen |
-| `docs/sw.js`, `docs/manifest.json` | Offline-Fähigkeit und „Zum Home-Bildschirm“ |
+| `docs/sw.js` | Offline-Fähigkeit (`manifest.json` liegt bei, ist aber absichtlich nicht eingebunden, siehe unten) |
 | `docs/vendor/html5-qrcode.min.js` | Scanner-Bibliothek html5-qrcode 2.3.8 (lokal statt CDN, Apache-2.0) |
 | `docs/icon-*.png`, `docs/apple-touch-icon.png` | Icons, erzeugt mit `tools/make_icons.py` |
 | `apps-script/Code.gs` | Backend (Google Apps Script) |
@@ -59,7 +59,7 @@ Die App sendet mit `Content-Type: text/plain`, damit der Browser keinen CORS-Pre
 - **Bestand:** Liste nach Farbe sortiert, mit Suchfeld und Summe. Rot heißt leer, orange heißt Mindestbestand erreicht.
 - **Statistik:** Verbraucht und gekauft je Farbe/Material für diesen Monat, dieses Jahr oder einen frei wählbaren Zeitraum, rechts daneben die Gesamtwerte.
 - **Einstellungen:** Web-App-URL und Token (nur lokal auf dem Gerät gespeichert), Knopf „Verbindung testen“.
-- **Einrichtung per Link:** `https://marcomakeimpact.github.io/FilamentTracker/#url=<WEB_APP_URL>&token=<TOKEN>` trägt beides automatisch ein. Der Teil nach `#` wird nie an einen Server gesendet und danach aus der Adresse entfernt.
+- **Einrichtung per Link:** `https://marcomakeimpact.github.io/FilamentTracker/#url=<WEB_APP_URL>&token=<TOKEN>` trägt beides automatisch ein. Die Werte bleiben in der Adresse, damit „Zum Home-Bildschirm“ sie ins Icon übernimmt. So gehen sie auch dann nicht verloren, wenn iOS den Speicher der App leert. Der Teil nach `#` wird nie an einen Server gesendet. Deshalb ist bewusst kein `<link rel="manifest">` eingebunden, sonst würde iOS die `start_url` ohne Einstellungen verwenden.
 
 ## Entwicklung
 
