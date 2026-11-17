@@ -1,7 +1,7 @@
 // Service Worker: App-Dateien offline verfügbar machen.
 // Strategie: erst Netz (damit Updates sofort ankommen), bei Offline aus dem Cache.
 // API-Aufrufe (POST an script.google.com) werden nie abgefangen.
-const C = 'filament-v4';
+const C = 'filament-v5';
 const FILES = ['./', 'index.html', 'vendor/html5-qrcode.min.js',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 

@@ -114,7 +114,7 @@
 </nav>
 
 <script>
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 let mode = 'add', busy = false, last = '', lastT = 0, entries = [], items = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -192,7 +192,7 @@ function beep(ok){
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button, .tab').forEach(x => x.classList.remove('active'));
   b.classList.add('active'); $(b.dataset.t).classList.add('active');
-  b.dataset.t === 'tScan' ? resumeScanner() : pauseScanner();
+  b.dataset.t === 'tScan' ? showScanTab() : pauseScanner();
   if (b.dataset.t === 'tStock') loadList();
   if (b.dataset.t === 'tStats') loadStats();
 });
@@ -340,11 +340,27 @@ const MACRO = /triple|dreifach|dual/i;
 function pauseScanner(){ if (scanning) { try { scanner.pause(true); } catch {} } }
 function resumeScanner(){ if (scanning) { try { scanner.resume(); } catch {} } }
 const scanConfig = video => ({ fps: 10, videoConstraints: video,
-  qrbox: (w, h) => ({ width: Math.min(320, w * 0.9) | 0, height: Math.min(160, h * 0.6) | 0 }) });
+  qrbox: (w, h) => ({ width: Math.max(50, Math.min(320, w * 0.9) | 0), height: Math.max(50, Math.min(160, h * 0.6) | 0) }) });
 const HIRES = { width: { ideal: 1920 }, height: { ideal: 1080 } };
 
+const FORMATS = () => [
+  Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.QR_CODE ];
+// Alten Scanner vollständig beenden (auch wenn stop() scheitert) und für jeden Start eine frische Instanz bauen,
+// damit der interne Zustand der Bibliothek nie hängen bleibt („Cannot clear while scan is ongoing“).
+async function killScanner(){
+  if (scanner) { try { if (scanner.getState() !== 1) await scanner.stop(); } catch {} }
+  document.querySelectorAll('#reader video').forEach(v => { try { v.srcObject?.getTracks().forEach(t => t.stop()); } catch {} });
+  scanning = false;
+}
+function newScanner(){
+  const host = $('reader'); host.innerHTML = '';
+  const el = document.createElement('div'); el.id = 'reader-' + Date.now(); host.appendChild(el);
+  scanner = new Html5Qrcode(el.id, { verbose: false, formatsToSupport: FORMATS(), experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+}
 async function startCamera(id){
-  if (scanning) { try { await scanner.stop(); } catch {} scanning = false; }
+  await killScanner();
+  newScanner();
   $('zoomRow').style.display = 'none';
   const video = id ? { deviceId: { exact: id }, ...HIRES } : { facingMode: 'environment', ...HIRES };
   await scanner.start(video, scanConfig(video), c => handle(c));
@@ -368,34 +384,39 @@ function setupZoom(id){
   } catch {}
 }
 async function initScanner(){
-  scanner = new Html5Qrcode('reader', { verbose: false, formatsToSupport: [
-    Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A,
-    Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.QR_CODE ],
-    experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
-  const chosen = pref.get('cam');
-  try { await startCamera(chosen); }
-  catch (e) {
-    if (!chosen) throw e;
-    pref.set('cam', ''); await startCamera(''); // gespeicherte Kamera gibt es nicht mehr
-  }
-  // Kameraliste erst nach erteilter Berechtigung verfügbar (vorher keine Namen)
+  // Erst Kameraliste holen (fragt dabei nach der Berechtigung und liefert die Namen), dann EINMAL starten
   try { cams = await Html5Qrcode.getCameras(); } catch { cams = []; }
   $('cam').innerHTML = '<option value="">Automatisch (Makro-fähige Kamera bevorzugt)</option>' +
     cams.map(c => `<option value="${esc(c.id)}">${esc(c.label || c.id)}</option>`).join('');
-  $('cam').value = pref.get('cam');
-  // Automatik: auf die Makro-fähige virtuelle Kamera wechseln, falls vorhanden
-  if (!pref.get('cam')) {
-    const macro = cams.find(c => MACRO.test(c.label) && !/front|vorder/i.test(c.label));
-    if (macro) { pref.set('autoCam', macro.id); await startCamera(macro.id); }
-    else setupZoom('');
+  let id = pref.get('cam');
+  // Geräte-IDs können sich ändern → notfalls über den Namen wiederfinden
+  if (id && !cams.some(c => c.id === id)) {
+    const byName = cams.find(c => c.label && c.label === pref.get('camLabel'));
+    id = byName ? byName.id : '';
+    pref.set('cam', id);
   }
+  $('cam').value = id;
+  if (!id) id = autoCam();
+  try { await startCamera(id); }
+  catch (e) { if (!id) throw e; await startCamera(''); } // Rückfall: Standard-Rückkamera
 }
-$('cam').onchange = async () => {
+function autoCam(){
+  const back = cams.filter(c => !/front|vorder/i.test(c.label));
+  return (back.find(c => /triple|dreifach/i.test(c.label)) || back.find(c => MACRO.test(c.label)) || {}).id || '';
+}
+// Kamerawechsel erst beim Zurückwechseln zum Scannen ausführen (im ausgeblendeten Reiter hat der Scanner keine Größe)
+let camChanged = false;
+$('cam').onchange = () => {
   pref.set('cam', $('cam').value);
-  try { await startCamera($('cam').value || pref.get('autoCam')); }
-  catch (e) { status('Kamera konnte nicht gestartet werden: ' + e, 'err'); }
-  pauseScanner(); // Einstellungen sind offen – beim Zurückwechseln läuft sie weiter
+  pref.set('camLabel', (cams.find(c => c.id === $('cam').value) || {}).label || '');
+  camChanged = true;
 };
+async function showScanTab(){
+  if (!camChanged) return resumeScanner();
+  camChanged = false;
+  try { await startCamera($('cam').value || autoCam()); }
+  catch (e) { status('Kamera konnte nicht gestartet werden: ' + e, 'err'); }
+}
 if (window.Html5Qrcode) initScanner().catch(e => status('Kamera nicht verfügbar: ' + e + ' – Barcode unten manuell eingeben', 'err'));
 else status('Scanner-Bibliothek nicht geladen – Barcode manuell eingeben', 'err');
 
