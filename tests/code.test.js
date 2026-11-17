@@ -6,7 +6,7 @@ const { env } = require('./fake-gas');
 
 test('setup legt Blätter und Kopfzeilen an und entfernt das leere Standardblatt', () => {
   const { sheets } = env();
-  assert.deepEqual(sheets.Bestand.rows[0], ['Barcode', 'Bezeichnung', 'Farbe', 'Bestand', 'Zuletzt geändert', 'Mindestbestand']);
+  assert.deepEqual(sheets.Bestand.rows[0], ['Nr.', 'Barcode', 'Bezeichnung', 'Farbe', 'Bestand', 'Zuletzt geändert', 'Mindestbestand']);
   assert.deepEqual(sheets.Log.rows[0], ['Zeit', 'Barcode', 'Bezeichnung', 'Farbe', 'Änderung']);
   assert.equal(sheets.Tabellenblatt1, undefined);
   assert.equal(sheets.Bestand.rules.length, 2);
@@ -28,7 +28,7 @@ test('unbekannter Barcode hinzufügen → need_details, dann mit Name/Farbe anle
   assert.equal(call({ action: 'add', code: '6975337034001', name: 'PLA Basic' }).error, 'need_details'); // Farbe fehlt
   const r = call({ action: 'add', code: '6975337034001', name: 'PLA Basic', color: 'Schwarz', min: '1' });
   assert.equal(r.ok, true); assert.equal(r.created, true);
-  assert.deepEqual(r.item, { code: '6975337034001', name: 'PLA Basic', color: 'Schwarz', stock: 1, min: 1 });
+  assert.deepEqual(r.item, { nr: 1, code: '6975337034001', name: 'PLA Basic', color: 'Schwarz', stock: 1, min: 1 });
   assert.equal(sheets.Log.rows.length, 2);
 });
 
@@ -40,7 +40,7 @@ test('erneut hinzufügen → +1, entnehmen → −1, bei 0 → empty', () => {
   assert.equal(call({ action: 'remove', code: '111' }).item.stock, 0);
   const r = call({ action: 'remove', code: '111' });
   assert.equal(r.ok, false); assert.equal(r.error, 'empty'); assert.equal(r.item.stock, 0);
-  assert.equal(sheets.Bestand.rows[1][3], 0);
+  assert.equal(sheets.Bestand.rows[1][4], 0);
   assert.deepEqual(sheets.Log.rows.slice(1).map(r => r[4]), [1, 1, -1, -1]);
 });
 
@@ -60,7 +60,7 @@ test('list, lookup, ping, stats', () => {
   call({ action: 'add', code: '1', name: 'PLA', color: 'Rot' });
   call({ action: 'add', code: '1' });
   call({ action: 'remove', code: '1' });
-  assert.deepEqual(call({ action: 'list' }).items, [{ code: '1', name: 'PLA', color: 'Rot', stock: 1, min: null }]);
+  assert.deepEqual(call({ action: 'list' }).items, [{ nr: 1, code: '1', name: 'PLA', color: 'Rot', stock: 1, min: null }]);
   assert.equal(call({ action: 'lookup', code: '1' }).found, true);
   assert.equal(call({ action: 'lookup', code: '2' }).found, false);
   assert.equal(call({ action: 'ping' }).ok, true);
@@ -98,6 +98,33 @@ test('Materialien-Blatt wird automatisch angelegt, falls setup nicht erneut lief
   const { call, sheets } = env();
   delete sheets.Materialien;
   assert.deepEqual(call({ action: 'materials' }).materials, ['PLA Basic', 'PLA Matte']);
+});
+
+test('Fortlaufende Nummer: neue Artikel bekommen höchste Nr. + 1, auch nach manueller Umnummerierung', () => {
+  const { call, sheets } = env();
+  call({ action: 'add', code: 'a', name: 'PLA', color: 'Rot' });
+  call({ action: 'add', code: 'b', name: 'PLA', color: 'Blau' });
+  assert.deepEqual(sheets.Bestand.rows.slice(1).map(r => [r[0], r[1]]), [[1, 'a'], [2, 'b']]);
+  sheets.Bestand.rows[1][0] = 10; // im Sheet umnummeriert
+  assert.equal(call({ action: 'add', code: 'c', name: 'PLA', color: 'Grün' }).item.nr, 11);
+  const st = call({ action: 'stats' }).entries;
+  assert.deepEqual(st.map(e => e.nr), [10, 2, 11]);
+});
+
+test('Altes Sheet ohne „Nr.“ wird automatisch umgestellt, Daten bleiben erhalten', () => {
+  const { call, sheets } = env();
+  const b = sheets.Bestand;
+  b.rows.length = 0;
+  b.rows.push(['Barcode', 'Bezeichnung', 'Farbe', 'Bestand', 'Zuletzt geändert', 'Mindestbestand'],
+              ['111', 'PLA Basic', 'Weiß', 2, '', ''], ['222', 'PLA Matte', 'Schwarz', 5, '', 1]);
+  const items = call({ action: 'list' }).items;
+  assert.equal(b.rows[0][0], 'Nr.');
+  assert.deepEqual(items.map(i => [i.nr, i.code, i.stock, i.min]), [[1, '111', 2, null], [2, '222', 5, 1]]);
+  assert.equal(call({ action: 'add', code: '111' }).item.stock, 3);
+  assert.equal(b.rows[1][4], 3);
+  assert.equal(call({ action: 'add', code: '333', name: 'PLA', color: 'Rot' }).item.nr, 3);
+  call({ action: 'list' }); // zweiter Aufruf darf nicht erneut umstellen
+  assert.equal(b.rows[0][1], 'Barcode');
 });
 
 test('doGet liefert Lebenszeichen ohne Daten', () => {

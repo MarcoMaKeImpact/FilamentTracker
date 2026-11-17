@@ -3,7 +3,9 @@
  *
  * Aktionen: ping | materials | list | lookup | add (code, qty, bei neuem Code name/color/min) | remove (code) | stats
  *
- * Bestand: Barcode | Bezeichnung | Farbe | Bestand | Zuletzt geändert | Mindestbestand
+ * Bestand: Nr. | Barcode | Bezeichnung | Farbe | Bestand | Zuletzt geändert | Mindestbestand
+ *          „Nr.“ = fortlaufende Nummer, bestimmt die Reihenfolge in der App (im Sheet frei änderbar).
+ *          Ältere Sheets ohne „Nr.“ werden beim ersten Aufruf automatisch umgestellt.
  * Materialien: Material   (eine Zeile pro Eintrag – hier erweitern, die App übernimmt die Liste)
  * Log:     Zeit | Barcode | Bezeichnung | Farbe | Änderung
  *
@@ -19,9 +21,10 @@ const SHEET = 'Bestand';
 const LOG = 'Log';
 const MAT = 'Materialien'; // Auswahlliste für die App: Spalte A, ab Zeile 2
 const DEFAULT_MATERIALS = ['PLA Basic', 'PLA Matte'];
-const HEAD = ['Barcode', 'Bezeichnung', 'Farbe', 'Bestand', 'Zuletzt geändert', 'Mindestbestand'];
+const HEAD = ['Nr.', 'Barcode', 'Bezeichnung', 'Farbe', 'Bestand', 'Zuletzt geändert', 'Mindestbestand'];
+const C = { nr: 0, code: 1, name: 2, color: 3, stock: 4, ts: 5, min: 6 }; // Spaltenindex (0-basiert)
 const LOG_HEAD = ['Zeit', 'Barcode', 'Bezeichnung', 'Farbe', 'Änderung'];
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 
 function book() {
   const active = SpreadsheetApp.getActive();
@@ -37,20 +40,9 @@ function setup() {
 
   const s = ss.getSheetByName(SHEET) || ss.insertSheet(SHEET);
   if (s.getLastRow() === 0) s.appendRow(HEAD);
-  else s.getRange(1, 1, 1, HEAD.length).setValues([HEAD]); // ergänzt ggf. "Mindestbestand"
-  s.getRange('A:A').setNumberFormat('@'); // Barcodes als Text (führende Nullen bleiben)
-  s.getRange('E:E').setNumberFormat('dd.MM.yyyy HH:mm');
-  s.getRange(1, 1, 1, HEAD.length).setFontWeight('bold');
-  s.setFrozenRows(1);
-
-  // Bedingte Formatierung: Bestand 0 → rot, unter/gleich Mindestbestand → orange
-  const rng = s.getRange('A2:F');
-  s.setConditionalFormatRules([
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND($A2<>"",$D2<=0)').setBackground('#f4c7c3').setRanges([rng]).build(),
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND($A2<>"",$F2<>"",$D2<=$F2)').setBackground('#fce8b2').setRanges([rng]).build()
-  ]);
+  migrate(s);
+  s.getRange(1, 1, 1, HEAD.length).setValues([HEAD]); // ergänzt ggf. fehlende Überschriften
+  formatStock(s);
 
   ensureMaterials(ss);
 
@@ -72,6 +64,42 @@ function setup() {
   }
 }
 
+/** Stellt ein altes Bestand-Blatt (Spalte A = Barcode) auf das neue Layout mit „Nr.“ in Spalte A um. */
+function migrate(s) {
+  if (String(s.getRange(1, 1).getValue()).trim() !== 'Barcode') return false;
+  s.insertColumnBefore(1);
+  s.getRange('A:A').setNumberFormat('0');
+  s.getRange(1, 1).setValue('Nr.');
+  const n = s.getLastRow() - 1;
+  if (n > 0) s.getRange(2, 1, n, 1).setValues(Array.from({ length: n }, (_, i) => [i + 1]));
+  formatStock(s);
+  return true;
+}
+
+/** Formate, Warnfarben und Material-Dropdown im Blatt „Bestand“ */
+function formatStock(s) {
+  s.getRange('A:A').setNumberFormat('0');
+  s.getRange('B:B').setNumberFormat('@'); // Barcodes als Text (führende Nullen bleiben)
+  s.getRange('F:F').setNumberFormat('dd.MM.yyyy HH:mm');
+  s.getRange(1, 1, 1, HEAD.length).setFontWeight('bold');
+  s.setFrozenRows(1);
+  // Bedingte Formatierung: Bestand 0 → rot, unter/gleich Mindestbestand → orange
+  const rng = s.getRange('A2:G');
+  s.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=AND($B2<>"",$E2<=0)').setBackground('#f4c7c3').setRanges([rng]).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=AND($B2<>"",$G2<>"",$E2<=$G2)').setBackground('#fce8b2').setRanges([rng]).build()
+  ]);
+  const m = s.getParent ? s.getParent().getSheetByName(MAT) : null;
+  if (m) linkMaterials(s, m);
+}
+
+function linkMaterials(stock, m) {
+  stock.getRange('C2:C').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInRange(m.getRange('A2:A'), true).setAllowInvalid(true).build());
+}
+
 /** Legt das Blatt „Materialien“ an (falls es fehlt) und verknüpft Spalte B im Bestand als Dropdown damit. */
 function ensureMaterials(ss) {
   let m = ss.getSheetByName(MAT);
@@ -81,8 +109,7 @@ function ensureMaterials(ss) {
     m.getRange(1, 1).setFontWeight('bold');
     m.setFrozenRows(1);
     const b = ss.getSheetByName(SHEET);
-    if (b) b.getRange('B2:B').setDataValidation(SpreadsheetApp.newDataValidation()
-      .requireValueInRange(m.getRange('A2:A'), true).setAllowInvalid(true).build());
+    if (b) linkMaterials(b, m);
   }
   return m;
 }
@@ -124,14 +151,15 @@ function doPost(e) {
 
     const sh = ss.getSheetByName(SHEET);
     if (!sh) return out({ ok: false, error: 'setup_missing' });
+    migrate(sh);
     const data = sh.getDataRange().getValues();
 
-    if (p.action === 'list') return out({ ok: true, items: data.slice(1).filter(r => String(r[0]).trim()).map(item) });
+    if (p.action === 'list') return out({ ok: true, items: data.slice(1).filter(r => String(r[C.code]).trim()).map(item) });
 
     const code = String(p.code || '').trim();
     if (!code) return out({ ok: false, error: 'no_code' });
     let row = -1;
-    for (let i = 1; i < data.length; i++) if (String(data[i][0]).trim() === code) { row = i; break; }
+    for (let i = 1; i < data.length; i++) if (String(data[i][C.code]).trim() === code) { row = i; break; }
 
     if (p.action === 'lookup') return out({ ok: true, found: row > 0, item: row > 0 ? item(data[row]) : null, materials: materials(ss) });
     if (p.action !== 'add' && p.action !== 'remove') return out({ ok: false, error: 'bad_action' });
@@ -144,15 +172,16 @@ function doPost(e) {
       const name = String(p.name || '').trim(), color = String(p.color || '').trim();
       if (!name || !color) return out({ ok: false, error: 'need_details', code }); // Farbe ist Pflicht
       const min = p.min === '' || p.min == null || isNaN(Number(p.min)) ? '' : Math.max(0, Math.floor(Number(p.min)));
-      sh.appendRow([code, name, color, qty, new Date(), min]);
+      const nr = data.slice(1).reduce((mx, r) => Math.max(mx, Number(r[C.nr]) || 0), 0) + 1; // nächste fortlaufende Nummer
+      sh.appendRow([nr, code, name, color, qty, new Date(), min]);
       log(ss, code, name, color, qty);
-      return out({ ok: true, created: true, qty, item: { code, name, color, stock: qty, min: min === '' ? null : min } });
+      return out({ ok: true, created: true, qty, item: { nr, code, name, color, stock: qty, min: min === '' ? null : min } });
     }
 
     const it = item(data[row]);
     if (delta < 0 && it.stock <= 0) return out({ ok: false, error: 'empty', item: it });
     it.stock += delta;
-    sh.getRange(row + 1, 4, 1, 2).setValues([[it.stock, new Date()]]);
+    sh.getRange(row + 1, C.stock + 1, 1, 2).setValues([[it.stock, new Date()]]);
     log(ss, code, it.name, it.color, delta);
     return out({ ok: true, qty: Math.abs(delta), item: it });
   } catch (err) {
@@ -163,15 +192,20 @@ function doPost(e) {
 }
 
 function item(r) {
-  const min = r[5] === '' || r[5] == null ? null : Number(r[5]);
-  return { code: String(r[0]).trim(), name: r[1], color: r[2], stock: Number(r[3]) || 0, min: isNaN(min) ? null : min };
+  const min = r[C.min] === '' || r[C.min] == null ? null : Number(r[C.min]);
+  const nr = r[C.nr] === '' || r[C.nr] == null || isNaN(Number(r[C.nr])) ? null : Number(r[C.nr]);
+  return { nr, code: String(r[C.code]).trim(), name: r[C.name], color: r[C.color], stock: Number(r[C.stock]) || 0, min: isNaN(min) ? null : min };
 }
 
 // Alle Log-Einträge für die Statistik; die App filtert nach Zeitraum und summiert
+// nr = aktuelle Nummer des Artikels im Bestand (für die Sortierung), null wenn es ihn nicht mehr gibt
 function entries(ss) {
+  const nrs = {};
+  const sh = ss.getSheetByName(SHEET);
+  if (sh) { migrate(sh); sh.getDataRange().getValues().slice(1).forEach(r => { nrs[String(r[C.code]).trim()] = item(r).nr; }); }
   return ss.getSheetByName(LOG).getDataRange().getValues().slice(1)
     .filter(r => r[0] && Number(r[4]))
-    .map(r => ({ t: new Date(r[0]).getTime(), label: (r[3] || 'ohne Farbe') + ' – ' + (r[2] || ''), d: Number(r[4]) }));
+    .map(r => ({ t: new Date(r[0]).getTime(), label: (r[3] || 'ohne Farbe') + ' – ' + (r[2] || ''), d: Number(r[4]), nr: nrs[String(r[1]).trim()] ?? null }));
 }
 
 function log(ss, code, name, color, delta) {

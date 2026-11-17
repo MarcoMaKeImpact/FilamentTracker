@@ -27,15 +27,17 @@ iPhone (PWA, GitHub Pages)  ──POST JSON + Token──▶  Apps Script Web-Ap
 
 ## Sheet-Aufbau
 
-**Bestand:** Barcode | Bezeichnung | Farbe | Bestand | Zuletzt geändert | Mindestbestand
+**Bestand:** Nr. | Barcode | Bezeichnung | Farbe | Bestand | Zuletzt geändert | Mindestbestand
+
+- **Nr.** ist eine fortlaufende Nummer (neue Artikel: höchste Nr. + 1). Sie bestimmt die Reihenfolge im Reiter „Bestand“ der App und darf im Sheet frei geändert werden. Ältere Sheets ohne „Nr.“ werden beim ersten Aufruf automatisch umgestellt.
 **Materialien:** Material (Spalte A, ab Zeile 2) – Quelle der Auswahlliste „Material“ in der App, Standard: PLA Basic, PLA Matte. Einfach weitere Zeilen eintragen. Das Blatt wird automatisch angelegt, falls es fehlt.
 **Log:** Zeit | Barcode | Bezeichnung | Farbe | Änderung
 
-- Spalte A ist als Text formatiert, damit führende Nullen erhalten bleiben.
+- Spalte B (Barcode) ist als Text formatiert, damit führende Nullen erhalten bleiben.
 - Bedingte Formatierung: Bestand 0 wird rot, Bestand ≤ Mindestbestand orange.
 - **Mindestbestand** (optional): Ab dieser Spulenzahl warnt die App, z. B. bei Mindestbestand 2 schon bei 2 Spulen, damit rechtzeitig nachgekauft wird. Bestand ≤ Mindestbestand wird orange, Bestand 0 rot.
-- Den Mindestbestand kannst du beim Anlegen in der App eingeben oder später direkt im Sheet in Spalte F eintragen.
-- Bezeichnung und Farbe darfst du im Sheet jederzeit ändern. Den Barcode in Spalte A solltest du nicht ändern.
+- Den Mindestbestand kannst du beim Anlegen in der App eingeben oder später direkt im Sheet in Spalte G eintragen.
+- Bezeichnung und Farbe darfst du im Sheet jederzeit ändern. Den Barcode in Spalte B solltest du nicht ändern.
 
 ## API (Apps Script, `POST`, Body JSON als `text/plain`)
 
@@ -59,7 +61,7 @@ Die App sendet mit `Content-Type: text/plain`, damit der Browser keinen CORS-Pre
 ## Funktionen der App
 
 - **Scannen:** Modus „+ Hinzufügen“ oder „− Entnehmen“ wählen, auf „📷 Scannen“ tippen. Die Kamera geht nach einem Treffer, beim Reiterwechsel, beim Verlassen der App und nach 60 s ohne Treffer sofort aus (Akku). Beim Hinzufügen fragt eine Box nach der Menge, bei neuen Artikeln zusätzlich nach Material (Auswahlliste), Farbe und Mindestbestand. Erkannt werden EAN-13/EAN-8/UPC/Code-128/QR. Auf iPhones mit Makro-Kamera (Pro) wird automatisch die Dreifach-Kamera genutzt; Zoom-Regler und Kamera-Auswahl in ⚙︎. Grün, gelb oder rot hinterlegte Rückmeldung mit Piepton. Barcodes lassen sich auch manuell eingeben.
-- **Bestand:** Liste nach Farbe sortiert, mit Suchfeld und Summe. Rot heißt leer, orange heißt Mindestbestand erreicht.
+- **Bestand:** Liste in der Reihenfolge der Nr. (Nr. · Farbe · Spulen), mit Suchfeld und Summe. Je Zeile ▲/▼ für +1/−1, jeder Klick erscheint im Log. Rot heißt leer, orange heißt Mindestbestand erreicht.
 - **Statistik:** Verbraucht und gekauft je Farbe/Material für diesen Monat, dieses Jahr oder einen frei wählbaren Zeitraum, rechts daneben die Gesamtwerte.
 - **Einstellungen:** Web-App-URL und Token (nur lokal auf dem Gerät gespeichert), Knopf „Verbindung testen“.
 - **Einrichtung per Link:** `https://marcomakeimpact.github.io/FilamentTracker/#url=<WEB_APP_URL>&token=<TOKEN>` trägt beides automatisch ein. Die Werte bleiben in der Adresse, damit „Zum Home-Bildschirm“ sie ins Icon übernimmt. So gehen sie auch dann nicht verloren, wenn iOS den Speicher der App leert. Der Teil nach `#` wird nie an einen Server gesendet. Deshalb ist bewusst kein `<link rel="manifest">` eingebunden, sonst würde iOS die `start_url` ohne Einstellungen verwenden.

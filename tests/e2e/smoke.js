@@ -126,13 +126,23 @@ const server = http.createServer((req, res) => {
   await page.click('nav button[data-t=tStock]');
   await page.waitForFunction(() => document.querySelectorAll('#list tr').length > 2);
   const listText = await page.textContent('#list');
-  check(listText.includes('Schwarz') && listText.includes('PLA Basic'), 'Bestandsliste zeigt Artikel');
+  check(listText.includes('Schwarz') && !listText.includes('PLA Basic'), 'Bestandsliste zeigt Farbe, aber kein Material');
+  const firstRow = await page.$$eval('#list tr:nth-child(2) td', t => t.map(x => x.textContent.trim()));
+  check(firstRow[0] === '1', 'Bestandsliste zeigt die Nr.: ' + firstRow.join(' | '));
+  await page.click('#list button.up'); await page.waitForFunction(() => document.getElementById('listInfo').textContent.includes('Bestand 1'));
+  check(true, 'Knopf ▲ → ' + await page.textContent('#listInfo'));
+  await page.click('#list button.up'); await page.waitForFunction(() => document.getElementById('listInfo').textContent.includes('Bestand 2'));
+  await page.click('#list button.down'); await page.waitForFunction(() => document.getElementById('listInfo').textContent.includes('−1') && document.getElementById('listInfo').textContent.includes('Bestand 1'));
+  check(true, 'Knopf ▼ → ' + await page.textContent('#listInfo'));
+  await page.click('#list button.down'); await page.waitForFunction(() => document.getElementById('listInfo').textContent.includes('Bestand 0'));
+  await page.waitForTimeout(1500);
+  check(await page.$eval('#list button.down', b => b.disabled), 'Bei Bestand 0 ist ▼ gesperrt');
   check(await page.$('#list tr.zero') !== null, 'Bestand 0 wird rot markiert');
   await page.screenshot({ path: path.join(SHOTS, '2-bestand.png') });
   await page.click('nav button[data-t=tStats]');
   await page.waitForFunction(() => document.getElementById('stats').textContent.includes('Summe'));
   const sumRow = await page.$$eval('#stats tr.sum td', tds => tds.map(t => t.textContent));
-  check(JSON.stringify(sumRow) === JSON.stringify(['Summe', '13', '13', '13', '13']), 'Statistik-Summe ' + sumRow.join(' | '));
+  check(JSON.stringify(sumRow) === JSON.stringify(['Summe', '15', '15', '15', '15']), 'Statistik-Summe ' + sumRow.join(' | '));
   await page.screenshot({ path: path.join(SHOTS, '3-statistik.png') });
 
   // 7) Falscher Token
@@ -149,8 +159,8 @@ const server = http.createServer((req, res) => {
   
   // Sheet-Inhalt prüfen
   const rows = gas.sheets.Bestand.rows;
-  check(rows.length === 2 && rows[1][3] === 0 && rows[1][5] === 1, 'Sheet: Bestand 0, Mindestbestand 1');
-  check(gas.sheets.Log.rows.length === 1 + 3 + 13, 'Log: 16 Einträge, Zugänge mit Menge');
+  check(rows.length === 2 && rows[1][0] === 1 && rows[1][4] === 0 && rows[1][6] === 1, 'Sheet: Nr. 1, Bestand 0, Mindestbestand 1');
+  check(gas.sheets.Log.rows.length === 1 + 3 + 13 + 4, 'Log: 20 Einträge (inkl. 4 Klicks auf ▲/▼)');
 
   await browser.close(); server.close();
   console.log(failed ? `\n${failed} Prüfung(en) fehlgeschlagen` : '\nAlle Prüfungen bestanden');

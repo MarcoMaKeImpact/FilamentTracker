@@ -30,6 +30,12 @@
  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}td,th{padding:6px 4px;border-bottom:1px solid #333;text-align:left}td.n,th.n{text-align:right}
  td.tot,th.tot{background:#1d1d1d}tr.sum td{font-weight:700;border-top:2px solid #555}
  tr.zero td{color:#ff8a80}tr.low td{color:#ffd180}
+ td.btns{white-space:nowrap;text-align:right;width:1%;padding-right:0}
+ td.btns button{width:40px;height:36px;margin-left:4px;font-size:15px;background:#2b2b2b;color:#eee}
+ td.btns button.up{background:#244a26}td.btns button.down{background:#4d2323}
+ td.btns button:disabled{opacity:.35}
+ td.stock small{color:#888;font-size:11px;white-space:nowrap}
+ tr.busy{opacity:.5}
  input,select{width:100%;padding:10px;margin:4px 0;font-size:16px;box-sizing:border-box;border-radius:8px;border:1px solid #444;background:#1b1b1b;color:#eee}
  button{font-size:16px;border-radius:8px;border:0;background:#333;color:#eee}
  .row{display:flex;gap:8px;align-items:center}.row button{flex:1;padding:10px}.row input{flex:3}
@@ -123,7 +129,7 @@
 </nav>
 
 <script>
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 let mode = 'add', busy = false, last = '', lastT = 0, entries = [], items = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -293,17 +299,42 @@ async function loadList(){
     items = res.items; renderList();
   } catch (e) { $('listInfo').textContent = 'Netzwerkfehler: ' + e.message; }
 }
+// Reihenfolge = Spalte „Nr.“ im Sheet (ohne Nummer ans Ende, dann nach Farbe)
+const byNr = (a, b) => (a.nr ?? Infinity) - (b.nr ?? Infinity) || String(a.color).localeCompare(b.color) || String(a.name).localeCompare(b.name);
 function renderList(){
   const q = $('filter').value.trim().toLowerCase();
-  const shown = items.filter(i => !q || [i.color, i.name, i.code].some(x => String(x).toLowerCase().includes(q)))
-    .sort((a,b) => String(a.color).localeCompare(b.color) || String(a.name).localeCompare(b.name));
+  const shown = items.filter(i => !q || [i.nr, i.color, i.name, i.code].some(x => String(x ?? '').toLowerCase().includes(q))).sort(byNr);
   const total = shown.reduce((s, i) => s + i.stock, 0);
   const warn = items.filter(i => i.stock <= 0 || (i.min != null && i.stock <= i.min)).length;
   $('listInfo').textContent = items.length + ' Artikel' + (warn ? ' · ' + warn + ' leer/unter Mindestbestand' : '');
-  $('list').innerHTML = '<tr><th>Farbe</th><th>Material</th><th class="n">Min</th><th class="n">Spulen</th></tr>' +
-    shown.map(i => `<tr class="${i.stock <= 0 ? 'zero' : (i.min != null && i.stock <= i.min ? 'low' : '')}" title="${esc(i.code)}"><td>${esc(i.color)}</td><td>${esc(i.name)}</td><td class="n">${i.min ?? ''}</td><td class="n">${i.stock}</td></tr>`).join('') +
-    `<tr class="sum"><td colspan="3">Summe</td><td class="n">${total}</td></tr>`;
+  $('list').innerHTML = '<tr><th class="n">Nr.</th><th>Farbe</th><th class="n">Spulen</th><th></th></tr>' +
+    shown.map(i => `<tr class="${i.stock <= 0 ? 'zero' : (i.min != null && i.stock <= i.min ? 'low' : '')}" title="${esc(i.name + ' · ' + i.code)}">` +
+      `<td class="n">${i.nr ?? ''}</td><td>${esc(i.color)}</td>` +
+      `<td class="n stock">${i.stock}${i.min != null ? `<small> / min ${i.min}</small>` : ''}</td>` +
+      `<td class="btns"><button class="up" data-code="${esc(i.code)}" aria-label="Hoch">▲</button><button class="down" data-code="${esc(i.code)}" aria-label="Runter" ${i.stock <= 0 ? 'disabled' : ''}>▼</button></td></tr>`).join('') +
+    `<tr class="sum"><td></td><td>Summe</td><td class="n">${total}</td><td></td></tr>`;
 }
+// Hoch/Runter in der Bestandsliste: jeder Klick bucht +1 bzw. −1 (inkl. Log-Eintrag im Sheet)
+$('list').onclick = async e => {
+  const b = e.target.closest('button[data-code]');
+  if (!b || b.disabled) return;
+  const code = b.dataset.code, up = b.classList.contains('up');
+  const row = b.closest('tr'); row.querySelectorAll('button').forEach(x => x.disabled = true); row.classList.add('busy');
+  try {
+    const res = await api(up ? { action: 'add', code, qty: 1 } : { action: 'remove', code });
+    if (res.ok) {
+      const i = items.find(x => x.code === code); if (i) Object.assign(i, res.item);
+      beep(true);
+      $('listInfo').textContent = (up ? '+1 ' : '−1 ') + label(res.item) + ' → Bestand ' + res.item.stock;
+      setTimeout(renderList, 1200);
+    } else {
+      beep(false);
+      $('listInfo').textContent = res.error === 'empty' ? label(res.item) + ' ist schon bei 0' : errText(res.error);
+    }
+  } catch (err) { beep(false); $('listInfo').textContent = 'Netzwerkfehler: ' + err.message; }
+  // Zeile sofort aktualisieren, Info-Text bleibt kurz stehen
+  const keep = $('listInfo').textContent; renderList(); $('listInfo').textContent = keep;
+};
 $('filter').oninput = renderList;
 
 // Statistik: Tabelle je Farbe – Verbraucht/Gekauft im gewählten Zeitraum, ganz rechts Gesamt über alle Zeit
