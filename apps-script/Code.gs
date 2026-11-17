@@ -1,9 +1,10 @@
 /**
  * Filament-Tracker – Google Apps Script Web-App-API
  *
- * Aktionen: ping | list | lookup | add (code, qty, bei neuem Code name/color/min) | remove (code) | stats
+ * Aktionen: ping | materials | list | lookup | add (code, qty, bei neuem Code name/color/min) | remove (code) | stats
  *
  * Bestand: Barcode | Bezeichnung | Farbe | Bestand | Zuletzt geändert | Mindestbestand
+ * Materialien: Material   (eine Zeile pro Eintrag – hier erweitern, die App übernimmt die Liste)
  * Log:     Zeit | Barcode | Bezeichnung | Farbe | Änderung
  *
  * Skripteigenschaften (Projekteinstellungen → Skripteigenschaften):
@@ -16,9 +17,11 @@
 
 const SHEET = 'Bestand';
 const LOG = 'Log';
+const MAT = 'Materialien'; // Auswahlliste für die App: Spalte A, ab Zeile 2
+const DEFAULT_MATERIALS = ['PLA Basic', 'PLA Matte'];
 const HEAD = ['Barcode', 'Bezeichnung', 'Farbe', 'Bestand', 'Zuletzt geändert', 'Mindestbestand'];
 const LOG_HEAD = ['Zeit', 'Barcode', 'Bezeichnung', 'Farbe', 'Änderung'];
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 
 function book() {
   const active = SpreadsheetApp.getActive();
@@ -49,6 +52,8 @@ function setup() {
       .whenFormulaSatisfied('=AND($A2<>"",$F2<>"",$D2<=$F2)').setBackground('#fce8b2').setRanges([rng]).build()
   ]);
 
+  ensureMaterials(ss);
+
   const l = ss.getSheetByName(LOG) || ss.insertSheet(LOG);
   if (l.getLastRow() === 0) l.appendRow(LOG_HEAD);
   l.getRange('A:A').setNumberFormat('dd.MM.yyyy HH:mm:ss');
@@ -65,6 +70,27 @@ function setup() {
   if (!PropertiesService.getScriptProperties().getProperty('TOKEN')) {
     Logger.log('ACHTUNG: Skripteigenschaft TOKEN fehlt noch!');
   }
+}
+
+/** Legt das Blatt „Materialien“ an (falls es fehlt) und verknüpft Spalte B im Bestand als Dropdown damit. */
+function ensureMaterials(ss) {
+  let m = ss.getSheetByName(MAT);
+  if (!m) {
+    m = ss.insertSheet(MAT);
+    m.getRange(1, 1, DEFAULT_MATERIALS.length + 1, 1).setValues([['Material']].concat(DEFAULT_MATERIALS.map(x => [x])));
+    m.getRange(1, 1).setFontWeight('bold');
+    m.setFrozenRows(1);
+    const b = ss.getSheetByName(SHEET);
+    if (b) b.getRange('B2:B').setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInRange(m.getRange('A2:A'), true).setAllowInvalid(true).build());
+  }
+  return m;
+}
+
+/** Materialliste aus dem Blatt „Materialien“ (Spalte A ohne Kopfzeile, leere Zellen und Doppelte entfernt) */
+function materials(ss) {
+  const vals = ensureMaterials(ss).getDataRange().getValues().slice(1).map(r => String(r[0]).trim()).filter(Boolean);
+  return vals.filter((v, i) => vals.indexOf(v) === i);
 }
 
 /** Optional im Editor ausführen: erzeugt einen zufälligen TOKEN, falls noch keiner existiert, und zeigt ihn im Log. */
@@ -94,6 +120,7 @@ function doPost(e) {
     const ss = book();
     if (p.action === 'ping') return out({ ok: true, version: VERSION });
     if (p.action === 'stats') return out({ ok: true, entries: entries(ss) });
+    if (p.action === 'materials') return out({ ok: true, materials: materials(ss) });
 
     const sh = ss.getSheetByName(SHEET);
     if (!sh) return out({ ok: false, error: 'setup_missing' });
@@ -106,7 +133,7 @@ function doPost(e) {
     let row = -1;
     for (let i = 1; i < data.length; i++) if (String(data[i][0]).trim() === code) { row = i; break; }
 
-    if (p.action === 'lookup') return out({ ok: true, found: row > 0, item: row > 0 ? item(data[row]) : null });
+    if (p.action === 'lookup') return out({ ok: true, found: row > 0, item: row > 0 ? item(data[row]) : null, materials: materials(ss) });
     if (p.action !== 'add' && p.action !== 'remove') return out({ ok: false, error: 'bad_action' });
     // Menge (nur beim Hinzufügen): ganze Zahl 1–999, Standard 1
     const qty = p.action === 'add' ? Math.min(999, Math.max(1, Math.floor(Number(p.qty)) || 1)) : 1;

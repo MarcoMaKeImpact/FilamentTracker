@@ -86,6 +86,20 @@ test('Menge beim Hinzufügen (neu und bestehend), Log mit Menge', () => {
   assert.deepEqual(sheets.Log.rows.slice(1).map(r => r[4]), [10, 3, 1, 999, -1]);
 });
 
+test('Materialien: Blatt mit Standardliste, erweiterbar, lookup liefert Liste', () => {
+  const { call, sheets } = env();
+  assert.deepEqual(sheets.Materialien.rows, [['Material'], ['PLA Basic'], ['PLA Matte']]);
+  sheets.Materialien.rows.push(['PETG HF'], [''], ['PLA Basic']); // erweitert, mit Leerzeile und Doppeltem
+  assert.deepEqual(call({ action: 'materials' }).materials, ['PLA Basic', 'PLA Matte', 'PETG HF']);
+  assert.deepEqual(call({ action: 'lookup', code: '1' }).materials, ['PLA Basic', 'PLA Matte', 'PETG HF']);
+});
+
+test('Materialien-Blatt wird automatisch angelegt, falls setup nicht erneut lief', () => {
+  const { call, sheets } = env();
+  delete sheets.Materialien;
+  assert.deepEqual(call({ action: 'materials' }).materials, ['PLA Basic', 'PLA Matte']);
+});
+
 test('doGet liefert Lebenszeichen ohne Daten', () => {
   const { ctx } = env();
   assert.equal(ctx.doGet().ok, true);

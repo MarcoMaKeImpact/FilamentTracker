@@ -49,17 +49,33 @@ const server = http.createServer((req, res) => {
   await page.click('nav button[data-t=tScan]');
   check(await page.evaluate(() => localStorage.getItem('token')) === 'geheim', 'Token lokal gespeichert');
 
-  // 1) Unbekannter Barcode → Dialog
-  await page.fill('#manual', '6975337034001'); await page.click('#bManual');
+  // 0) Kamera: anfangs aus, Tippen schaltet ein, Treffer schaltet aus
+  const camOn = () => page.evaluate(() => scanning && [...document.querySelectorAll('#reader video')].some(v => v.srcObject?.getTracks().some(t => t.readyState === 'live')));
+  check(!(await camOn()) && await page.isVisible('#camStart'), 'Kamera ist beim Start aus, Knopf „Scannen“ sichtbar');
+  const box = await page.$eval('#camBox', e => e.getBoundingClientRect().height);
+  check(box <= 230, 'Kamerabereich ist kompakt (' + box + ' px hoch)');
+  await page.click('#camStart');
+  await page.waitForFunction(() => scanning, null, { timeout: 15000 });
+  check(await camOn(), 'Tippen auf „Scannen“ schaltet die Kamera ein');
+  await page.screenshot({ path: path.join(SHOTS, '0-kamera.png') });
+  await page.click('nav button[data-t=tStock]'); await page.waitForTimeout(300);
+  check(!(await camOn()) && await page.$$eval('#reader video', v => v.length) === 0, 'Reiterwechsel schaltet die Kamera aus');
+  await page.click('nav button[data-t=tScan]');
+  check(!(await camOn()), 'Zurück auf Scannen: Kamera bleibt aus, bis man tippt');
+
+  // 1) Unbekannter Barcode per (simuliertem) Kamera-Treffer → Kamera aus, Dialog
+  await page.click('#camStart');
+  await page.waitForFunction(() => scanning, null, { timeout: 15000 });
+  await page.evaluate(() => onScan('6975337034001'));
   await page.waitForSelector('#dNew[open]');
-  check(true, 'Dialog für neuen Artikel erscheint');
-  await page.fill('#dName', 'PLA Basic'); await page.fill('#dColor', 'Schwarz'); await page.fill('#dMin', '1');
+  check(!(await camOn()), 'Bei der Eingabe ist die Kamera aus');
+  const opts = await page.$$eval('#dName option', o => o.map(x => x.textContent));
+  check(JSON.stringify(opts) === JSON.stringify(['Bitte wählen …', 'PLA Basic', 'PLA Matte']), 'Material-Auswahlliste aus dem Sheet: ' + opts.join(', '));
+  await page.selectOption('#dName', 'PLA Basic'); await page.fill('#dColor', 'Schwarz'); await page.fill('#dMin', '1');
   await page.click('#dNew button[value=ok]');
   await page.waitForFunction(() => document.getElementById('status').textContent.includes('Bestand'));
   check((await status()).includes('Neu angelegt: +1 PLA Basic – Schwarz → Bestand 1'), 'Neu angelegt mit Bestand 1: ' + await status());
   await page.screenshot({ path: path.join(SHOTS, '1-neu.png') });
-  await page.waitForTimeout(1500);
-  check(await page.evaluate(() => scanner.getState()) === 2, 'Kamera läuft nach dem Dialog weiter');
 
   // 2) Erneut hinzufügen → Box mit Menge, nur Menge sichtbar; + zweimal, − einmal → 2
   await page.fill('#manual', '6975337034001'); await page.click('#bManual');
@@ -130,8 +146,6 @@ const server = http.createServer((req, res) => {
   await page.fill('#url', base + '#url=' + encodeURIComponent(API) + '&token=geheim'); await page.fill('#token', '');
   await page.click('#bSave');
   check(await page.inputValue('#url') === API && await page.inputValue('#token') === 'geheim', 'Einrichtungslink ins URL-Feld einfügen funktioniert');
-  await page.click('nav button[data-t=tScan]'); await page.waitForTimeout(1500);
-  check(await page.evaluate(() => scanner.getState()) === 2, 'Kamera läuft nach Reiterwechsel wieder');
   
   // Sheet-Inhalt prüfen
   const rows = gas.sheets.Bestand.rows;

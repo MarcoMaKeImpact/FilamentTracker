@@ -19,8 +19,12 @@
  .modes{display:flex;gap:8px;margin-bottom:12px}
  .modes button{flex:1;padding:16px;font-size:18px;border:0;border-radius:12px;background:#333;color:#eee}
  .modes button.active.add{background:#2e7d32}.modes button.active.remove{background:#c62828}
- #reader{width:100%;border-radius:12px;overflow:hidden;background:#000;min-height:120px}
- #reader video{border-radius:12px}
+ /* Kamerabereich mit fester Höhe; das Videobild wird mittig angezeigt und oben/unten abgeschnitten */
+ #camBox{position:relative;height:220px;border-radius:12px;overflow:hidden;background:#000}
+ #reader{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%)}
+ #camStart{position:absolute;inset:0;width:100%;border:0;border-radius:12px;background:#1d1d1d;color:#eee;font-size:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+ #camStart small{font-size:13px;color:#999}
+ #camStop{position:absolute;top:8px;right:8px;z-index:5;padding:6px 10px;background:rgba(0,0,0,.6);font-size:14px;display:none}
  .box{margin:12px 0;padding:12px;border-radius:12px;background:#222;transition:background .3s}
  .box.ok{background:#1e4620}.box.err{background:#5a1d1d}.box.warn{background:#5a4510}
  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}td,th{padding:6px 4px;border-bottom:1px solid #333;text-align:left}td.n,th.n{text-align:right}
@@ -47,9 +51,13 @@
     <button id="bAdd" class="add active">+ Hinzufügen</button>
     <button id="bRemove" class="remove">− Entnehmen</button>
   </div>
-  <div id="reader"></div>
+  <div id="camBox">
+    <div id="reader"></div>
+    <button id="camStop">✕ Kamera aus</button>
+    <button id="camStart">📷 Scannen<small>Tippen, um die Kamera einzuschalten</small></button>
+  </div>
   <div id="zoomRow" class="row" style="display:none;margin-top:8px"><span class="hint">Zoom</span><input id="zoom" type="range" step="0.1" style="flex:1"><span id="zoomVal" class="hint" style="width:40px;text-align:right"></span></div>
-  <div id="status" class="box">Bereit zum Scannen</div>
+  <div id="status" class="box">Modus wählen und auf „📷 Scannen“ tippen</div>
   <div class="row"><input id="manual" placeholder="Barcode manuell" inputmode="numeric" autocomplete="off"><button id="bManual">OK</button></div>
 </section>
 
@@ -92,8 +100,9 @@
   <form method="dialog">
     <p id="dTitle"></p>
     <div id="dNewFields">
-      <label for="dName">Bezeichnung *</label>
-      <input id="dName" placeholder="z. B. PLA Basic">
+      <label for="dName">Material *</label>
+      <select id="dName"></select>
+      <div id="dMatHint" class="hint"></div>
       <label for="dColor">Farbe *</label>
       <input id="dColor" placeholder="z. B. Schwarz" list="colors">
       <label for="dMin">Mindestbestand (optional)</label>
@@ -114,7 +123,7 @@
 </nav>
 
 <script>
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.4.0';
 let mode = 'add', busy = false, last = '', lastT = 0, entries = [], items = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -192,7 +201,7 @@ function beep(ok){
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button, .tab').forEach(x => x.classList.remove('active'));
   b.classList.add('active'); $(b.dataset.t).classList.add('active');
-  b.dataset.t === 'tScan' ? showScanTab() : pauseScanner();
+  if (b.dataset.t !== 'tScan') stopCamera();
   if (b.dataset.t === 'tStock') loadList();
   if (b.dataset.t === 'tStats') loadStats();
 });
@@ -209,7 +218,8 @@ async function api(body){
 // Box beim Hinzufügen: Menge immer, bei neuen Artikeln zusätzlich Bezeichnung/Farbe (Pflicht) und Mindestbestand
 $('dMinus').onclick = () => { $('dQty').value = Math.max(1, (parseInt($('dQty').value) || 1) - 1); };
 $('dPlus').onclick = () => { $('dQty').value = Math.min(999, (parseInt($('dQty').value) || 0) + 1); };
-function askAdd(code, known){
+const DEFAULT_MATERIALS = ['PLA Basic', 'PLA Matte']; // nur Rückfall, Quelle ist das Blatt „Materialien“
+function askAdd(code, known, materials){
   return new Promise(res => {
     const d = $('dNew');
     $('dTitle').innerHTML = known
@@ -217,6 +227,9 @@ function askAdd(code, known){
       : `Neuer Artikel: <b>${esc(code)}</b>`;
     $('dNewFields').style.display = known ? 'none' : 'block';
     $('dName').required = $('dColor').required = !known;
+    const mats = materials && materials.length ? materials : DEFAULT_MATERIALS;
+    $('dName').innerHTML = '<option value="">Bitte wählen …</option>' + mats.map(m => `<option>${esc(m)}</option>`).join('');
+    $('dMatHint').textContent = materials ? 'Weitere Materialien im Google Sheet im Blatt „Materialien“ eintragen.' : 'Apps Script ist veraltet – bitte Code.gs aktualisieren, damit die Liste aus dem Sheet kommt.';
     $('dName').value = ''; $('dColor').value = ''; $('dMin').value = ''; $('dQty').value = 1;
     $('dOk').textContent = known ? 'Hinzufügen' : 'Anlegen';
     $('colors').innerHTML = [...new Set(items.map(i => i.color).filter(Boolean))].sort().map(c => `<option value="${esc(c)}">`).join('');
@@ -242,11 +255,9 @@ async function handle(code){
       status('Suche ' + code + ' …');
       const lk = await api({ action: 'lookup', code });
       if (!lk.ok) { beep(false); status(errText(lk.error), 'err'); return; }
-      pauseScanner();
-      const det = await askAdd(code, lk.found ? lk.item : null);
-      resumeScanner();
+      const det = await askAdd(code, lk.found ? lk.item : null, lk.materials);
       if (!det) { status('Abgebrochen', 'warn'); return; }
-      if (!lk.found && (!det.name || !det.color)) { status('Abgebrochen – Bezeichnung und Farbe sind Pflicht', 'warn'); beep(false); return; }
+      if (!lk.found && (!det.name || !det.color)) { status('Abgebrochen – Material und Farbe sind Pflicht', 'warn'); beep(false); return; }
       qty = det.qty;
       status('Sende ' + code + ' …');
       res = await api({ action: 'add', code, ...det });
@@ -332,59 +343,47 @@ function renderStats(){
 $('period').onchange = renderStats; $('from').onchange = renderStats; $('to').onchange = renderStats;
 
 // Kamera-Scanner (html5-qrcode, lokal unter vendor/ abgelegt)
+// Die Kamera läuft nur, solange man aktiv scannt: „📷 Scannen“ tippen → Code wird erkannt → Kamera geht sofort aus.
+// Sie geht außerdem aus beim Reiterwechsel, beim Verlassen der App und nach 60 s ohne Treffer (Akku).
 // iPhones geben dem Browser standardmäßig die Hauptkamera, die erst ab ca. 20 cm scharf stellt.
-// Die virtuelle „Dreifach-/Dual-Weitwinkel-Kamera“ wechselt wie die Kamera-App automatisch in den Makromodus.
-let scanner = null, scanning = false, cams = [];
+// Die virtuelle „Dreifach-Kamera“ (iPhone Pro) wechselt wie die Kamera-App automatisch in den Makromodus.
+let scanner = null, scanning = false, cams = null, idleTimer = null;
 const pref = { get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 const MACRO = /triple|dreifach|dual/i;
-function pauseScanner(){ if (scanning) { try { scanner.pause(true); } catch {} } }
-function resumeScanner(){ if (scanning) { try { scanner.resume(); } catch {} } }
-const scanConfig = video => ({ fps: 10, videoConstraints: video,
-  qrbox: (w, h) => ({ width: Math.max(50, Math.min(320, w * 0.9) | 0), height: Math.max(50, Math.min(160, h * 0.6) | 0) }) });
 const HIRES = { width: { ideal: 1920 }, height: { ideal: 1080 } };
-
 const FORMATS = () => [
   Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A,
   Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.QR_CODE ];
-// Alten Scanner vollständig beenden (auch wenn stop() scheitert) und für jeden Start eine frische Instanz bauen,
-// damit der interne Zustand der Bibliothek nie hängen bleibt („Cannot clear while scan is ongoing“).
-async function killScanner(){
-  if (scanner) { try { if (scanner.getState() !== 1) await scanner.stop(); } catch {} }
+const scanConfig = video => ({ fps: 10, videoConstraints: video,
+  qrbox: (w, h) => ({ width: Math.max(50, Math.min(320, w * 0.9) | 0), height: Math.max(50, Math.min(140, h * 0.6) | 0) }) });
+
+function camUi(on){
+  $('camStart').style.display = on ? 'none' : 'flex';
+  $('camStop').style.display = on ? 'block' : 'none';
+  if (!on) $('zoomRow').style.display = 'none';
+}
+// Scanner vollständig beenden (Kamera-Licht aus), auch wenn stop() scheitert
+async function stopCamera(){
+  clearTimeout(idleTimer);
+  const s = scanner; scanner = null; scanning = false;
+  if (s) { try { if (s.getState() !== 1) await s.stop(); } catch {} }
   document.querySelectorAll('#reader video').forEach(v => { try { v.srcObject?.getTracks().forEach(t => t.stop()); } catch {} });
-  scanning = false;
+  $('reader').innerHTML = '';
+  camUi(false);
 }
-function newScanner(){
-  const host = $('reader'); host.innerHTML = '';
-  const el = document.createElement('div'); el.id = 'reader-' + Date.now(); host.appendChild(el);
-  scanner = new Html5Qrcode(el.id, { verbose: false, formatsToSupport: FORMATS(), experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+// Wird bei jedem erkannten Code aufgerufen: Kamera aus, dann buchen
+function onScan(code){
+  if (!scanning) return;
+  stopCamera();
+  last = ''; // neuer Scan-Vorgang, keine Doppelscan-Sperre
+  handle(code);
 }
-async function startCamera(id){
-  await killScanner();
-  newScanner();
-  $('zoomRow').style.display = 'none';
-  const video = id ? { deviceId: { exact: id }, ...HIRES } : { facingMode: 'environment', ...HIRES };
-  await scanner.start(video, scanConfig(video), c => handle(c));
-  scanning = true;
-  setupZoom(id);
+function autoCam(){
+  const back = (cams || []).filter(c => !/front|vorder/i.test(c.label));
+  return (back.find(c => /triple|dreifach/i.test(c.label)) || back.find(c => MACRO.test(c.label)) || {}).id || '';
 }
-function setupZoom(id){
-  try {
-    const caps = scanner.getRunningTrackCapabilities();
-    try { scanner.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); } catch {}
-    if (!caps.zoom || caps.zoom.max <= caps.zoom.min) return;
-    const z = $('zoom'); z.min = caps.zoom.min; z.max = Math.min(caps.zoom.max, 10);
-    const cam = cams.find(c => c.id === id);
-    // Virtuelle Mehrfachkamera: Zoom 2 entspricht „1x“ der Kamera-App
-    const def = cam && MACRO.test(cam.label) && caps.zoom.max >= 2 ? 2 : caps.zoom.min;
-    const v = parseFloat(pref.get('zoom:' + (id || 'env'))) || def;
-    const apply = val => { $('zoomVal').textContent = (+val).toFixed(1) + '×'; scanner.applyVideoConstraints({ advanced: [{ zoom: +val }] }).catch(() => {}); };
-    z.value = v; apply(v);
-    z.oninput = () => { apply(z.value); pref.set('zoom:' + (id || 'env'), z.value); };
-    $('zoomRow').style.display = 'flex';
-  } catch {}
-}
-async function initScanner(){
-  // Erst Kameraliste holen (fragt dabei nach der Berechtigung und liefert die Namen), dann EINMAL starten
+async function loadCams(){
+  if (cams) return;
   try { cams = await Html5Qrcode.getCameras(); } catch { cams = []; }
   $('cam').innerHTML = '<option value="">Automatisch (Makro-fähige Kamera bevorzugt)</option>' +
     cams.map(c => `<option value="${esc(c.id)}">${esc(c.label || c.id)}</option>`).join('');
@@ -396,29 +395,60 @@ async function initScanner(){
     pref.set('cam', id);
   }
   $('cam').value = id;
-  if (!id) id = autoCam();
-  try { await startCamera(id); }
-  catch (e) { if (!id) throw e; await startCamera(''); } // Rückfall: Standard-Rückkamera
 }
-function autoCam(){
-  const back = cams.filter(c => !/front|vorder/i.test(c.label));
-  return (back.find(c => /triple|dreifach/i.test(c.label)) || back.find(c => MACRO.test(c.label)) || {}).id || '';
+async function openCamera(id){
+  const host = $('reader'); host.innerHTML = '';
+  const el = document.createElement('div'); el.id = 'reader-' + Date.now(); host.appendChild(el);
+  scanner = new Html5Qrcode(el.id, { verbose: false, formatsToSupport: FORMATS(), experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+  const video = id ? { deviceId: { exact: id }, ...HIRES } : { facingMode: 'environment', ...HIRES };
+  await scanner.start(video, scanConfig(video), onScan);
+  scanning = true;
+  setupZoom(id);
 }
-// Kamerawechsel erst beim Zurückwechseln zum Scannen ausführen (im ausgeblendeten Reiter hat der Scanner keine Größe)
-let camChanged = false;
+async function startCamera(){
+  if (!window.Html5Qrcode) return status('Scanner-Bibliothek nicht geladen – Barcode manuell eingeben', 'err');
+  if (scanning || busy) return;
+  $('camStart').style.display = 'none';
+  status('Kamera startet …');
+  try {
+    await loadCams();
+    const id = pref.get('cam') || autoCam();
+    try { await openCamera(id); }
+    catch (e) { if (!id) throw e; await stopCamera(); await openCamera(''); } // Rückfall: Standard-Rückkamera
+    camUi(true);
+    status((mode === 'add' ? '+ Hinzufügen' : '− Entnehmen') + ': Barcode in den Rahmen halten');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { if (scanning) { stopCamera(); status('Kamera nach 60 s ohne Treffer ausgeschaltet'); } }, 60000);
+  } catch (e) {
+    await stopCamera();
+    status('Kamera nicht verfügbar: ' + e + ' – Barcode unten manuell eingeben', 'err');
+  }
+}
+function setupZoom(id){
+  try {
+    const caps = scanner.getRunningTrackCapabilities();
+    try { scanner.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); } catch {}
+    if (!caps.zoom || caps.zoom.max <= caps.zoom.min) return;
+    const z = $('zoom'); z.min = caps.zoom.min; z.max = Math.min(caps.zoom.max, 10);
+    const cam = (cams || []).find(c => c.id === id);
+    // Virtuelle Mehrfachkamera: Zoom 2 entspricht „1x“ der Kamera-App
+    const def = cam && MACRO.test(cam.label) && caps.zoom.max >= 2 ? 2 : caps.zoom.min;
+    const key = 'zoom:' + ((cam && cam.label) || 'env');
+    const v = parseFloat(pref.get(key)) || def;
+    const apply = val => { $('zoomVal').textContent = (+val).toFixed(1) + '×'; scanner?.applyVideoConstraints({ advanced: [{ zoom: +val }] }).catch(() => {}); };
+    z.value = v; apply(v);
+    z.oninput = () => { apply(z.value); pref.set(key, z.value); };
+    $('zoomRow').style.display = 'flex';
+  } catch {}
+}
+$('camStart').onclick = startCamera;
+$('camStop').onclick = () => { stopCamera(); status('Kamera aus'); };
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(); });
 $('cam').onchange = () => {
   pref.set('cam', $('cam').value);
-  pref.set('camLabel', (cams.find(c => c.id === $('cam').value) || {}).label || '');
-  camChanged = true;
+  pref.set('camLabel', ((cams || []).find(c => c.id === $('cam').value) || {}).label || '');
 };
-async function showScanTab(){
-  if (!camChanged) return resumeScanner();
-  camChanged = false;
-  try { await startCamera($('cam').value || autoCam()); }
-  catch (e) { status('Kamera konnte nicht gestartet werden: ' + e, 'err'); }
-}
-if (window.Html5Qrcode) initScanner().catch(e => status('Kamera nicht verfügbar: ' + e + ' – Barcode unten manuell eingeben', 'err'));
-else status('Scanner-Bibliothek nicht geladen – Barcode manuell eingeben', 'err');
+camUi(false);
 
 if (!store.get('url') || !store.get('token')) status('Willkommen! Bitte zuerst unter ⚙︎ Web-App-URL und Token eintragen.', 'warn');
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');

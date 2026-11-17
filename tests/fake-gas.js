@@ -5,6 +5,7 @@ const vm = require('node:vm');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
 
+const validation = [];
 function fakeSheet(name) {
   const rows = [];
   return {
@@ -13,7 +14,7 @@ function fakeSheet(name) {
     appendRow: r => rows.push([...r]),
     getDataRange: () => ({ getValues: () => rows.map(r => [...r]) }),
     getRange: (a, c, nr, nc) => {
-      const api = { setNumberFormat() { return api; }, setFontWeight() { return api; },
+      const api = { setNumberFormat() { return api; }, setFontWeight() { return api; }, setDataValidation(v) { validation.push([name, a, v]); return api; },
         setValues(v) { if (typeof a === 'number') v.forEach((vr, i) => vr.forEach((x, j) => {
           const row = rows[a - 1 + i] || (rows[a - 1 + i] = []); row[c - 1 + j] = x; })); return api; } };
       return api;
@@ -33,7 +34,8 @@ function env(token = 'secret') {
   const props = { TOKEN: token };
   const rule = () => { const b = { whenFormulaSatisfied: () => b, setBackground: () => b, setRanges: () => b, build: () => ({}) }; return b; };
   const ctx = {
-    SpreadsheetApp: { getActive: () => ss, newConditionalFormatRule: rule },
+    SpreadsheetApp: { getActive: () => ss, newConditionalFormatRule: rule,
+      newDataValidation: () => { const b = { requireValueInRange: () => b, setAllowInvalid: () => b, build: () => ({}) }; return b; } },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ setMimeType: () => JSON.parse(s) }) },

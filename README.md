@@ -28,10 +28,12 @@ iPhone (PWA, GitHub Pages)  ──POST JSON + Token──▶  Apps Script Web-Ap
 ## Sheet-Aufbau
 
 **Bestand:** Barcode | Bezeichnung | Farbe | Bestand | Zuletzt geändert | Mindestbestand
+**Materialien:** Material (Spalte A, ab Zeile 2) – Quelle der Auswahlliste „Material“ in der App, Standard: PLA Basic, PLA Matte. Einfach weitere Zeilen eintragen. Das Blatt wird automatisch angelegt, falls es fehlt.
 **Log:** Zeit | Barcode | Bezeichnung | Farbe | Änderung
 
 - Spalte A ist als Text formatiert, damit führende Nullen erhalten bleiben.
 - Bedingte Formatierung: Bestand 0 wird rot, Bestand ≤ Mindestbestand orange.
+- **Mindestbestand** (optional): Ab dieser Spulenzahl warnt die App, z. B. bei Mindestbestand 2 schon bei 2 Spulen, damit rechtzeitig nachgekauft wird. Bestand ≤ Mindestbestand wird orange, Bestand 0 rot.
 - Den Mindestbestand kannst du beim Anlegen in der App eingeben oder später direkt im Sheet in Spalte F eintragen.
 - Bezeichnung und Farbe darfst du im Sheet jederzeit ändern. Den Barcode in Spalte A solltest du nicht ändern.
 
@@ -42,9 +44,10 @@ Jede Anfrage enthält `token`. Die Antwort ist immer `{ ok: true|false, … }`.
 | `action` | weitere Felder | Antwort |
 |---|---|---|
 | `ping` | – | `{ ok, version }` (Verbindungstest) |
+| `materials` | – | `{ ok, materials: ["PLA Basic", …] }` |
 | `list` | – | `{ ok, items: [{ code, name, color, stock, min }] }` |
-| `lookup` | `code` | `{ ok, found, item }` |
-| `add` | `code`, bei neuem Code `name`, `color`, optional `min` | `{ ok, item, created? }` oder `error: need_details` |
+| `lookup` | `code` | `{ ok, found, item, materials }` |
+| `add` | `code`, `qty` (1–999), bei neuem Code `name`, `color`, optional `min` | `{ ok, qty, item, created? }` oder `error: need_details` |
 | `remove` | `code` | `{ ok, item }` oder `error: empty` / `unknown_code` |
 | `stats` | – | `{ ok, entries: [{ t, label, d }] }` |
 
@@ -55,7 +58,7 @@ Die App sendet mit `Content-Type: text/plain`, damit der Browser keinen CORS-Pre
 
 ## Funktionen der App
 
-- **Scannen:** Modus „+ Hinzufügen“ oder „− Entnehmen“, Kamera mit EAN-13/EAN-8/UPC/Code-128/QR. Wird derselbe Code innerhalb von 3 Sekunden erneut erkannt, zählt er nur einmal. Grün, gelb oder rot hinterlegte Rückmeldung mit Piepton. Barcodes lassen sich auch manuell eingeben.
+- **Scannen:** Modus „+ Hinzufügen“ oder „− Entnehmen“ wählen, auf „📷 Scannen“ tippen. Die Kamera geht nach einem Treffer, beim Reiterwechsel, beim Verlassen der App und nach 60 s ohne Treffer sofort aus (Akku). Beim Hinzufügen fragt eine Box nach der Menge, bei neuen Artikeln zusätzlich nach Material (Auswahlliste), Farbe und Mindestbestand. Erkannt werden EAN-13/EAN-8/UPC/Code-128/QR. Auf iPhones mit Makro-Kamera (Pro) wird automatisch die Dreifach-Kamera genutzt; Zoom-Regler und Kamera-Auswahl in ⚙︎. Grün, gelb oder rot hinterlegte Rückmeldung mit Piepton. Barcodes lassen sich auch manuell eingeben.
 - **Bestand:** Liste nach Farbe sortiert, mit Suchfeld und Summe. Rot heißt leer, orange heißt Mindestbestand erreicht.
 - **Statistik:** Verbraucht und gekauft je Farbe/Material für diesen Monat, dieses Jahr oder einen frei wählbaren Zeitraum, rechts daneben die Gesamtwerte.
 - **Einstellungen:** Web-App-URL und Token (nur lokal auf dem Gerät gespeichert), Knopf „Verbindung testen“.
