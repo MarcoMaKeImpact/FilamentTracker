@@ -1,0 +1,12 @@
+{
+  "name": "filament-tracker",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Filamentspulen per iPhone-Kamera scannen, Bestand im Google Sheet",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "e2e": "node tests/e2e/smoke.js",
+    "serve": "python3 -m http.server 8080 --directory docs",
+    "icons": "python3 tools/make_icons.py"
+  }
+}

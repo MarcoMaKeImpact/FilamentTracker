@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Filament">
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Filament-Tracker</title>
+<script src="vendor/html5-qrcode.min.js"></script>
+<style>
+ :root{color-scheme:dark}
+ body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:16px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:calc(80px + env(safe-area-inset-bottom));background:#111;color:#eee}
+ h2{margin:4px 0 12px}
+ .modes{display:flex;gap:8px;margin-bottom:12px}
+ .modes button{flex:1;padding:16px;font-size:18px;border:0;border-radius:12px;background:#333;color:#eee}
+ .modes button.active.add{background:#2e7d32}.modes button.active.remove{background:#c62828}
+ #reader{width:100%;border-radius:12px;overflow:hidden;background:#000;min-height:120px}
+ #reader video{border-radius:12px}
+ .box{margin:12px 0;padding:12px;border-radius:12px;background:#222;transition:background .3s}
+ .box.ok{background:#1e4620}.box.err{background:#5a1d1d}.box.warn{background:#5a4510}
+ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}td,th{padding:6px 4px;border-bottom:1px solid #333;text-align:left}td.n,th.n{text-align:right}
+ td.tot,th.tot{background:#1d1d1d}tr.sum td{font-weight:700;border-top:2px solid #555}
+ tr.zero td{color:#ff8a80}tr.low td{color:#ffd180}
+ input,select{width:100%;padding:10px;margin:4px 0;font-size:16px;box-sizing:border-box;border-radius:8px;border:1px solid #444;background:#1b1b1b;color:#eee}
+ button{font-size:16px;border-radius:8px;border:0;background:#333;color:#eee}
+ .row{display:flex;gap:8px;align-items:center}.row button{flex:1;padding:10px}.row input{flex:3}
+ .full{width:100%;padding:12px;margin-top:8px}
+ .hint{color:#999;font-size:13px}
+ nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#1b1b1b;padding-bottom:env(safe-area-inset-bottom);border-top:1px solid #2a2a2a}
+ nav button{flex:1;padding:16px;border:0;background:none;color:#888;font-size:16px;border-radius:0}nav button.active{color:#fff;font-weight:600}
+ .tab{display:none}.tab.active{display:block}
+ dialog{background:#222;color:#eee;border:0;border-radius:12px;width:90%;max-width:420px}
+ dialog::backdrop{background:rgba(0,0,0,.6)}
+ label{display:block;margin-top:8px;font-size:14px;color:#bbb}
+</style>
+</head>
+<body>
+<section id="tScan" class="tab active">
+  <div class="modes">
+    <button id="bAdd" class="add active">+ Hinzufügen</button>
+    <button id="bRemove" class="remove">− Entnehmen</button>
+  </div>
+  <div id="reader"></div>
+  <div id="status" class="box">Bereit zum Scannen</div>
+  <div class="row"><input id="manual" placeholder="Barcode manuell" inputmode="numeric" autocomplete="off"><button id="bManual">OK</button></div>
+</section>
+
+<section id="tStock" class="tab">
+  <h2>Bestand</h2>
+  <input id="filter" type="search" placeholder="Suchen (Farbe, Material, Barcode)">
+  <div id="listInfo" class="hint"></div>
+  <table id="list"></table>
+</section>
+
+<section id="tStats" class="tab">
+  <h2>Statistik</h2>
+  <select id="period">
+    <option value="month">Dieser Monat</option>
+    <option value="year">Dieses Jahr</option>
+    <option value="range">Zeitraum von – bis</option>
+  </select>
+  <div id="range" class="row" style="display:none"><input type="date" id="from"><input type="date" id="to"></div>
+  <table id="stats"></table>
+</section>
+
+<section id="tSet" class="tab">
+  <h2>Einstellungen</h2>
+  <label for="url">Apps-Script-Web-App-URL</label>
+  <input id="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <label for="token">Token</label>
+  <input id="token" placeholder="Token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button id="bSave" class="full">Speichern</button>
+  <button id="bTest" class="full">Verbindung testen</button>
+  <div id="setStatus" class="box" style="display:none"></div>
+  <p class="hint">Tipp: Statt beide Felder einzeln auszufüllen, kannst du den kompletten Einrichtungslink <code>…/#url=WEB_APP_URL&amp;token=TOKEN</code> ins URL-Feld einfügen und „Speichern“ tippen.</p>
+  <p class="hint" id="ver"></p>
+</section>
+
+<dialog id="dNew">
+  <form method="dialog">
+    <p>Neuer Artikel: <b id="dCode"></b></p>
+    <label for="dName">Bezeichnung *</label>
+    <input id="dName" placeholder="z. B. PLA Basic" required>
+    <label for="dColor">Farbe *</label>
+    <input id="dColor" placeholder="z. B. Schwarz" required list="colors">
+    <label for="dMin">Mindestbestand (optional)</label>
+    <input id="dMin" type="number" min="0" step="1" inputmode="numeric" placeholder="z. B. 1">
+    <datalist id="colors"></datalist>
+    <div class="row" style="margin-top:12px"><button value="cancel" formnovalidate>Abbrechen</button><button value="ok">Anlegen</button></div>
+  </form>
+</dialog>
+
+<nav>
+  <button data-t="tScan" class="active">Scannen</button>
+  <button data-t="tStock">Bestand</button>
+  <button data-t="tStats">Statistik</button>
+  <button data-t="tSet" aria-label="Einstellungen">⚙︎</button>
+</nav>
+
+<script>
+const APP_VERSION = '1.1.0';
+let mode = 'add', busy = false, last = '', lastT = 0, entries = [], items = [];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const store = { get: k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+                set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+$('ver').textContent = 'Version ' + APP_VERSION;
+
+// Einrichtung per Link: #url=…&token=… (Hash wird nie an einen Server gesendet)
+(() => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('url') || h.get('token')) {
+    if (h.get('url')) store.set('url', h.get('url').trim());
+    if (h.get('token')) store.set('token', h.get('token').trim());
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+})();
+
+$('url').value = store.get('url'); $('token').value = store.get('token');
+// Speichert die Felder; ins URL-Feld darf auch der komplette Einrichtungslink (…#url=…&token=…) eingefügt werden
+function saveSettings(){
+  let u = $('url').value.trim(), t = $('token').value.trim();
+  const i = u.indexOf('#');
+  if (i >= 0) { const h = new URLSearchParams(u.slice(i + 1)); if (h.get('url')) { u = h.get('url').trim(); t = (h.get('token') || t).trim(); } }
+  $('url').value = u; $('token').value = t;
+  store.set('url', u); store.set('token', t);
+}
+$('bSave').onclick = () => { saveSettings(); setStatus('Gespeichert', 'ok'); };
+$('bTest').onclick = async () => {
+  saveSettings();
+  setStatus('Teste …');
+  try {
+    const r = await api({ action: 'ping' });
+    if (r.ok) setStatus('Verbindung OK (Server-Version ' + (r.version || '?') + ')', 'ok');
+    else setStatus(errText(r.error), 'err');
+  } catch (e) { setStatus('Netzwerkfehler: ' + e.message, 'err'); }
+};
+function setStatus(t, cls = ''){ const s = $('setStatus'); s.style.display = 'block'; s.className = 'box ' + cls; s.textContent = t; }
+
+function setMode(m){ mode = m; $('bAdd').classList.toggle('active', m==='add'); $('bRemove').classList.toggle('active', m==='remove'); }
+$('bAdd').onclick = () => setMode('add'); $('bRemove').onclick = () => setMode('remove');
+function status(t, cls = ''){ const s = $('status'); s.textContent = t; s.className = 'box ' + cls; }
+const label = i => i.name + ' – ' + i.color;
+const errText = e => ({
+  unauthorized: 'Token falsch oder auf dem Server nicht gesetzt',
+  not_configured: 'Bitte zuerst unter ⚙︎ Web-App-URL und Token eintragen',
+  busy: 'Server beschäftigt – bitte nochmal versuchen',
+  setup_missing: 'Sheet nicht eingerichtet – im Apps Script einmal „setup“ ausführen',
+  no_code: 'Kein Barcode erkannt',
+  bad_action: 'Ungültige Aktion'
+}[e] || ('Fehler: ' + e));
+
+// Kurzes akustisches Feedback (iPhone kann nicht vibrieren)
+let actx;
+document.addEventListener('touchend', () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} }, { once: true });
+function beep(ok){
+  navigator.vibrate?.(ok ? 100 : [80, 60, 80]);
+  if (!actx) return;
+  try {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = ok ? 1200 : 300; g.gain.value = 0.15;
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + (ok ? 0.12 : 0.3));
+  } catch {}
+}
+
+// Reiter
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button, .tab').forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); $(b.dataset.t).classList.add('active');
+  b.dataset.t === 'tScan' ? resumeScanner() : pauseScanner();
+  if (b.dataset.t === 'tStock') loadList();
+  if (b.dataset.t === 'tStats') loadStats();
+});
+
+async function api(body){
+  const url = store.get('url');
+  if (!url) return { ok: false, error: 'not_configured' };
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({ ...body, token: store.get('token') }) });
+  const txt = await r.text();
+  try { return JSON.parse(txt); }
+  catch { throw new Error('Antwort ist kein JSON – stimmt die URL (muss auf /exec enden) und ist Zugriff „Jeder“ eingestellt?'); }
+}
+
+// Neuer Artikel: Bezeichnung und Farbe sind Pflicht
+function askDetails(code){
+  return new Promise(res => {
+    const d = $('dNew'); $('dCode').textContent = code; $('dName').value = ''; $('dColor').value = ''; $('dMin').value = '';
+    $('colors').innerHTML = [...new Set(items.map(i => i.color).filter(Boolean))].sort().map(c => `<option value="${esc(c)}">`).join('');
+    d.onclose = () => res(d.returnValue === 'ok' ? { name: $('dName').value.trim(), color: $('dColor').value.trim(), min: $('dMin').value.trim() } : null);
+    d.returnValue = '';
+    d.showModal();
+  });
+}
+
+async function handle(code){
+  code = String(code || '').trim();
+  const now = Date.now();
+  if (!code || busy || (code === last && now - lastT < 3000)) return; // Doppelscans verhindern
+  busy = true; last = code; lastT = now;
+  const m = mode; // Modus zum Scanzeitpunkt festhalten
+  try {
+    status('Sende ' + code + ' …');
+    let res = await api({ action: m, code });
+    if (!res.ok && res.error === 'need_details') {
+      pauseScanner();
+      const det = await askDetails(code);
+      resumeScanner();
+      if (!det || !det.name || !det.color) { status('Abgebrochen – Bezeichnung und Farbe sind Pflicht', 'warn'); beep(false); return; }
+      res = await api({ action: 'add', code, ...det });
+    }
+    if (res.ok) {
+      const i = res.item; beep(true);
+      let t = (res.created ? 'Neu angelegt: ' : (m==='add' ? '+1 ' : '−1 ')) + label(i) + ' → Bestand ' + i.stock;
+      const low = i.min != null && i.stock <= i.min;
+      if (i.stock === 0) t += '  ⚠︎ leer – nachkaufen';
+      else if (low) t += '  ⚠︎ Mindestbestand (' + i.min + ') erreicht';
+      status(t, low || i.stock === 0 ? 'warn' : 'ok');
+    }
+    else if (res.error === 'empty') { beep(false); status(label(res.item) + ' ist schon bei 0', 'err'); }
+    else if (res.error === 'unknown_code') { beep(false); status('Unbekannter Barcode ' + code + ' – erst hinzufügen', 'err'); }
+    else { beep(false); status(errText(res.error), 'err'); }
+  } catch(e){ beep(false); status('Netzwerkfehler: ' + e.message, 'err'); }
+  finally { busy = false; lastT = Date.now(); }
+}
+
+$('bManual').onclick = () => { const c = $('manual').value.trim(); $('manual').value=''; if (c) { last = ''; handle(c); } };
+$('manual').onkeydown = e => { if (e.key === 'Enter') $('bManual').click(); };
+
+async function loadList(){
+  $('listInfo').textContent = 'Lade …';
+  try {
+    const res = await api({ action: 'list' });
+    if (!res.ok) { $('listInfo').textContent = errText(res.error); return; }
+    items = res.items; renderList();
+  } catch (e) { $('listInfo').textContent = 'Netzwerkfehler: ' + e.message; }
+}
+function renderList(){
+  const q = $('filter').value.trim().toLowerCase();
+  const shown = items.filter(i => !q || [i.color, i.name, i.code].some(x => String(x).toLowerCase().includes(q)))
+    .sort((a,b) => String(a.color).localeCompare(b.color) || String(a.name).localeCompare(b.name));
+  const total = shown.reduce((s, i) => s + i.stock, 0);
+  const warn = items.filter(i => i.stock <= 0 || (i.min != null && i.stock <= i.min)).length;
+  $('listInfo').textContent = items.length + ' Artikel' + (warn ? ' · ' + warn + ' leer/unter Mindestbestand' : '');
+  $('list').innerHTML = '<tr><th>Farbe</th><th>Material</th><th class="n">Min</th><th class="n">Spulen</th></tr>' +
+    shown.map(i => `<tr class="${i.stock <= 0 ? 'zero' : (i.min != null && i.stock <= i.min ? 'low' : '')}" title="${esc(i.code)}"><td>${esc(i.color)}</td><td>${esc(i.name)}</td><td class="n">${i.min ?? ''}</td><td class="n">${i.stock}</td></tr>`).join('') +
+    `<tr class="sum"><td colspan="3">Summe</td><td class="n">${total}</td></tr>`;
+}
+$('filter').oninput = renderList;
+
+// Statistik: Tabelle je Farbe – Verbraucht/Gekauft im gewählten Zeitraum, ganz rechts Gesamt über alle Zeit
+async function loadStats(){
+  try {
+    const res = await api({ action: 'stats' });
+    if (!res.ok) { $('stats').innerHTML = `<tr><td>${esc(errText(res.error))}</td></tr>`; return; }
+    entries = res.entries;
+    renderStats();
+  } catch (e) { $('stats').innerHTML = `<tr><td>${esc('Netzwerkfehler: ' + e.message)}</td></tr>`; }
+}
+function bounds(){
+  const now = new Date(), p = $('period').value;
+  if (p === 'month') return [new Date(now.getFullYear(), now.getMonth(), 1).getTime(), Infinity];
+  if (p === 'year') return [new Date(now.getFullYear(), 0, 1).getTime(), Infinity];
+  const f = $('from').value ? new Date($('from').value + 'T00:00:00').getTime() : -Infinity;
+  const t = $('to').value ? new Date($('to').value + 'T23:59:59').getTime() : Infinity;
+  return [f, t];
+}
+function renderStats(){
+  $('range').style.display = $('period').value === 'range' ? 'flex' : 'none';
+  const [f, t] = bounds();
+  const rows = {}, sum = { u:0, b:0, U:0, B:0 };
+  entries.forEach(e => {
+    const r = rows[e.label] || (rows[e.label] = { u:0, b:0, U:0, B:0 });
+    const inP = e.t >= f && e.t <= t;
+    if (e.d < 0) { r.U -= e.d; sum.U -= e.d; if (inP) { r.u -= e.d; sum.u -= e.d; } }
+    else { r.B += e.d; sum.B += e.d; if (inP) { r.b += e.d; sum.b += e.d; } }
+  });
+  const line = (name, r, cls='') => `<tr class="${cls}"><td>${esc(name)}</td><td class="n">${r.u}</td><td class="n">${r.b}</td><td class="n tot">${r.U}</td><td class="n tot">${r.B}</td></tr>`;
+  $('stats').innerHTML =
+    '<tr><th></th><th class="n" colspan="2">Zeitraum</th><th class="n tot" colspan="2">Gesamt</th></tr>' +
+    '<tr><th>Farbe – Material</th><th class="n">Verbr.</th><th class="n">Gek.</th><th class="n tot">Verbr.</th><th class="n tot">Gek.</th></tr>' +
+    Object.keys(rows).sort((a,b) => a.localeCompare(b)).map(k => line(k, rows[k])).join('') +
+    line('Summe', sum, 'sum');
+}
+$('period').onchange = renderStats; $('from').onchange = renderStats; $('to').onchange = renderStats;
+
+// Kamera-Scanner (html5-qrcode, lokal unter vendor/ abgelegt)
+let scanner = null, scanning = false;
+function pauseScanner(){ if (scanning) { try { scanner.pause(true); } catch {} } }
+function resumeScanner(){ if (scanning) { try { scanner.resume(); } catch {} } }
+if (window.Html5Qrcode) {
+  scanner = new Html5Qrcode('reader', { verbose: false, formatsToSupport: [
+    Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.UPC_A,
+    Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.QR_CODE ],
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+  scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: (w, h) => ({ width: Math.min(300, w * 0.85) | 0, height: Math.min(150, h * 0.6) | 0 }) }, c => handle(c))
+    .then(() => { scanning = true; })
+    .catch(e => status('Kamera nicht verfügbar: ' + e + ' – Barcode unten manuell eingeben', 'err'));
+} else status('Scanner-Bibliothek nicht geladen – Barcode manuell eingeben', 'err');
+
+if (!store.get('url') || !store.get('token')) status('Willkommen! Bitte zuerst unter ⚙︎ Web-App-URL und Token eintragen.', 'warn');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
