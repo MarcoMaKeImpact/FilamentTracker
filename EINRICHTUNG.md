@@ -44,7 +44,9 @@ Platzhalter, die du dabei erzeugst und am Ende brauchst:
 
 ## 5. GitHub Pages einschalten
 
-1. Diesen Branch (`claude/dazzling-cori-0ywne5`) nach **`main`** mergen, z. B. per Pull Request auf GitHub.
+1. Das Repo hat bisher nur den Branch `claude/dazzling-cori-0ywne5`. Mach daraus `main`:
+   **Settings → General → Default branch** → auf `claude/dazzling-cori-0ywne5` umstellen, dann unter **Code → Branches** den Branch in `main` umbenennen (✏️).
+   Alternativ in Schritt 2 direkt `claude/dazzling-cori-0ywne5` als Branch wählen.
 2. Im Repo **Settings → Pages**:
    - Source: **Deploy from a branch**
    - Branch: **`main`**, Ordner **`/docs`** → **Save**
